@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getNews } from '../../../lib/stocks'
-import { getNewsViaAgent } from '../../../../agents/newsAgent'
 import { BACKEND_CONFIG } from '../../../lib/backend-config'
 
 function sanitizeSymbol(symbol: string): string {
@@ -62,24 +61,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const clampedLimit = Math.max(1, Math.min(50, limit))
   
   try {
-    let news
-    
-    // Check if agents are enabled and configured
-    if (process.env.AZURE_AI_FOUNDRY_USE_AGENTS === '1') {
-      try {
-        news = await getNewsViaAgent(symbol, clampedLimit)
-        // If agent returns results, use them
-        if (news && news.length > 0) {
-          res.setHeader('X-News-Source', 'agent')
-          return res.status(200).json(news)
-        }
-      } catch (agentError) {
-        console.warn('Agent news failed, falling back to provider:', agentError)
-      }
-    }
-    
-    // Fallback to existing provider logic or MOCK mode
-    news = await getNews(symbol, clampedLimit)
+    // Fallback to existing provider logic
+    const news = await getNews(symbol, clampedLimit)
     res.setHeader('X-News-Source', 'provider')
     return res.status(200).json(news)
     

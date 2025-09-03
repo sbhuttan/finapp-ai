@@ -15,13 +15,19 @@ This directory contains various test and utility scripts for the FinApp AI proje
 - `test-openai-assistants.mjs` - Test Azure OpenAI Assistants API
 - `test-basic-assistant.mjs` - Test basic OpenAI Assistant without tools
 
-### Agent Tests
-- `test-news-agent.mjs` - Test news agent functionality
-- `test-bing-grounding.mjs` - Test Bing search grounding
-- `validate-agents.mjs` - Validate agent configurations
+### Backend Tests
+- `test-bing-grounding.mjs` - Test Bing search grounding functionality
+- `validate-backend.mjs` - Validate Python backend and frontend integration
 
 ### Exploration Scripts
 - `explore-endpoints.mjs` - Explore available Azure AI Foundry endpoints
+
+## Python Backend
+
+The main AI functionality is now implemented in the Python backend (`/python-backend/`):
+- Persistent FinancialNewsAgent for optimized performance
+- Finnhub API integration for real-time market data
+- FastAPI server with comprehensive error handling
 
 ## Usage
 

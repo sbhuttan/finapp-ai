@@ -1,23 +1,26 @@
-# Azure AI Foundry Agents Integration - Current Status
+# Azure AI Foundry Integration - Current Status
 
 ## ✅ What's Working
 
-### 1. Complete Agent Framework
-- **Location**: `/agents/` folder with full TypeScript implementation
+### 1. Python Backend Architecture
+- **Location**: `/python-backend/` folder with FastAPI implementation
 - **Components**: 
-  - `types.ts` - Complete type definitions for agents and tools
-  - `client.ts` - Full Azure AI Foundry REST API client
-  - `newsAgent.ts` - Specialized news agent with Bing grounding
-- **Status**: ✅ Complete and functional
+  - `main.py` - FastAPI server with CORS and routing
+  - `agents/news_agent.py` - Optimized FinancialNewsAgent with persistent caching
+  - Finnhub API integration for real-time market data
+- **Status**: ✅ Complete and optimized
 
 ### 2. API Integration
 - **Endpoints**: 
-  - `/api/agents/news` - Direct agent endpoint
-  - `/api/stock/news` - Updated with agent-first fallback logic
-- **Fallback System**: ✅ Agent → Provider → Mock data chain
-- **Error Handling**: ✅ Graceful degradation when agents fail
+  - `/api/stock/news` - News via persistent FinancialNewsAgent
+  - `/api/market/top-movers` - Real-time data via Finnhub API
+- **Fallback System**: ✅ Python Backend → Mock data fallback
+- **Error Handling**: ✅ Graceful degradation and logging
 
-### 3. UI Enhancements
+### 3. Performance Optimization
+- **Persistent Agent**: FinancialNewsAgent reused across requests
+- **Caching**: Agent validation and reuse logic
+- **Speed**: Significantly faster after first request
 - **NewsList Component**: ✅ Enhanced with "via Bing" indicators
 - **Real-time Debugging**: ✅ Console logs show agent attempts
 - **User Experience**: ✅ Seamless fallback to mock data
