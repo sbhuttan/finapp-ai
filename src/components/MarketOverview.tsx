@@ -5,6 +5,7 @@ import axios from 'axios'
 import { IndexQuote, IndexSymbol, RangeKey, getIndexQuote, IndexTileQuote } from '../lib/market'
 import IndexSummaryCard from './IndexSummaryCard'
 import { formatCurrency } from '../lib/format'
+import { BACKEND_CONFIG } from '../lib/backend-config'
 
 const Line = dynamic(() => import('react-chartjs-2').then((m) => m.Line), { ssr: false })
 
@@ -46,6 +47,7 @@ export default function MarketOverview({ initialData, initialRange }: Props) {
     losers: []
   })
   const [moversLoading, setMoversLoading] = useState(true)
+  const [moversError, setMoversError] = useState<string | null>(null)
 
   useEffect(() => {
     // register Chart.js client-side
@@ -163,11 +165,19 @@ export default function MarketOverview({ initialData, initialRange }: Props) {
     const fetchTopMovers = async () => {
       try {
         setMoversLoading(true)
-        const response = await axios.get('/api/market/top-movers')
-        setTopMovers(response.data)
+        setMoversError(null)
+        const response = await axios.get(`${BACKEND_CONFIG.pythonUrl}/api/market/top-movers`)
+        if (response.data && response.data.topGainers && response.data.topLosers) {
+          setTopMovers({
+            gainers: response.data.topGainers,
+            losers: response.data.topLosers
+          })
+        } else {
+          throw new Error('Invalid response format')
+        }
       } catch (error) {
-        console.error('Failed to fetch top movers:', error)
-        // Keep existing data on error
+        console.error('Error fetching top movers:', error)
+        setMoversError('Failed to load market data')
       } finally {
         setMoversLoading(false)
       }

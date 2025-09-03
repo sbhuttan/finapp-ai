@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import our news agent
-from agents.news_agent import get_news_via_bing_grounding, cleanup_financial_news_agent
+from agents.news_agent import get_news_via_bing_grounding
 
 app = FastAPI(title="Market Analysis AI - Python Backend", version="1.0.0")
 
@@ -25,14 +25,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Add shutdown event handler for cleanup
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up resources when the application shuts down"""
-    print("🔄 Application shutting down, cleaning up resources...")
-    cleanup_financial_news_agent()
-    print("✅ Cleanup completed")
 
 class NewsItem(BaseModel):
     id: str
@@ -106,6 +98,9 @@ async def fetch_finnhub_top_movers() -> TopMoversResponse:
             gainers_url = f"{FINNHUB_BASE_URL}/scan/stock-screener?token={FINNHUB_API_KEY}"
             losers_url = f"{FINNHUB_BASE_URL}/scan/stock-screener?token={FINNHUB_API_KEY}"
             
+
+            print(gainers_url)
+
             headers = {"Content-Type": "application/json"}
             
             async with session.post(gainers_url, json=gainers_payload, headers=headers) as gainers_response:
@@ -135,6 +130,7 @@ async def fetch_finnhub_top_movers() -> TopMoversResponse:
             if losers_data.get("result"):
                 for stock in losers_data["result"]:
                     if stock.get("symbol") and stock.get("price") is not None:
+                        print(stock["symbol"])
                         losers.append(TopMover(
                             symbol=stock["symbol"],
                             name=stock.get("companyName", stock["symbol"]),

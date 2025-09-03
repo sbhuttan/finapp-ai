@@ -17,6 +17,10 @@ from concurrent.futures import ThreadPoolExecutor
 # Thread pool executor for async operations
 executor = ThreadPoolExecutor(max_workers=4)
 
+# Global agent cache to persist the FinancialNewsAgent
+_financial_news_agent = None
+_agents_client = None
+
 class NewsItem:
     def __init__(self, id: str, source: str, headline: str, url: str, published_at: str, summary: str = None):
         self.id = id
@@ -144,6 +148,71 @@ def extract_json_from_response(response_text: str) -> Optional[List[Dict]]:
                 
         return None
 
+def get_or_create_financial_news_agent(project_client, model_deployment: str, bing_connection: str):
+    """
+    Get existing FinancialNewsAgent or create it if it doesn't exist.
+    This function maintains a persistent agent to avoid recreation overhead.
+    """
+    global _financial_news_agent, _agents_client
+    
+    try:
+        agents_client = project_client.agents
+        
+        # If we have a cached agent, verify it still exists
+        if _financial_news_agent and _agents_client:
+            try:
+                # Try to retrieve the agent to verify it still exists
+                existing_agent = agents_client.get_agent(_financial_news_agent.id)
+                if existing_agent and existing_agent.name == "FinancialNewsAgent":
+                    print(f"♻️  Reusing existing FinancialNewsAgent: {existing_agent.id}")
+                    return existing_agent, agents_client
+                else:
+                    print("🔄 Cached agent no longer exists, will create new one")
+                    _financial_news_agent = None
+            except Exception as e:
+                print(f"⚠️  Cached agent validation failed: {e}, will create new one")
+                _financial_news_agent = None
+        
+        # Check if FinancialNewsAgent already exists by listing agents
+        try:
+            agents_list = agents_client.list_agents()
+            for agent in agents_list:
+                if agent.name == "FinancialNewsAgent":
+                    print(f"♻️  Found existing FinancialNewsAgent: {agent.id}")
+                    _financial_news_agent = agent
+                    _agents_client = agents_client
+                    return agent, agents_client
+        except Exception as e:
+            print(f"⚠️  Error listing agents: {e}, will create new agent")
+        
+        # Get Bing connection ID
+        conn_id = project_client.connections.get(bing_connection).id
+        print(f"✅ Using Bing connection ID: {conn_id}")
+        
+        # Initialize Bing grounding tool
+        bing_tool = BingGroundingTool(connection_id=conn_id)
+        
+        # Create new persistent agent
+        print("🆕 Creating new FinancialNewsAgent...")
+        agent = agents_client.create_agent(
+            model=model_deployment,
+            name="FinancialNewsAgent",
+            instructions="You are a specialized financial news researcher that provides factual, recent news about stocks and companies using web search. You return results as clean JSON arrays without additional formatting.",
+            tools=bing_tool.definitions,
+        )
+        
+        print(f"✅ FinancialNewsAgent created: {agent.id}")
+        
+        # Cache the agent for future use
+        _financial_news_agent = agent
+        _agents_client = agents_client
+        
+        return agent, agents_client
+        
+    except Exception as e:
+        print(f"❌ Error getting/creating FinancialNewsAgent: {e}")
+        raise
+
 def _run_bing_grounding_sync(symbol: str, limit: int, lookback_days: int) -> List[NewsItem]:
     """Synchronous function to run the Bing grounding agent"""
     try:
@@ -164,27 +233,12 @@ def _run_bing_grounding_sync(symbol: str, limit: int, lookback_days: int) -> Lis
         )
         
         with project_client:
-            agents_client = project_client.agents
-            
-            # Use connection ID directly instead of looking it up
-            # The bing_connection should be the actual connection ID, not a name to lookup
-            # [START create_agent_with_bing_grounding_tool]
-            conn_id = project_client.connections.get(os.environ["BING_CONNECTION_NAME"]).id
-            print(f"✅ Using Bing connection ID: {conn_id}")
-            
-            # Initialize Bing grounding tool
-            bing_tool = BingGroundingTool(connection_id=conn_id)
-            
-            # Create agent with financial news specialization
-            agent_name = f"FinancialNewsAgent_{symbol}_{int(datetime.now().timestamp())}"
-            agent = agents_client.create_agent(
-                model=model_deployment,
-                name=agent_name,
-                instructions="You are a specialized financial news researcher that provides factual, recent news about stocks and companies using web search.",
-                tools=bing_tool.definitions,
+            # Get or create the persistent FinancialNewsAgent
+            agent, agents_client = get_or_create_financial_news_agent(
+                project_client, 
+                model_deployment, 
+                bing_connection
             )
-            
-            print(f"✅ Agent created: {agent.id}")
             
             try:
                 # Create thread for communication
@@ -202,7 +256,7 @@ def _run_bing_grounding_sync(symbol: str, limit: int, lookback_days: int) -> Lis
                 print(f"✅ Message created: {message.id}")
                 
                 # Run the agent
-                print("🔄 Running agent with Bing grounding...")
+                print("🔄 Running FinancialNewsAgent with Bing grounding...")
                 run = agents_client.runs.create_and_process(thread_id=thread.id, agent_id=agent.id)
                 print(f"✅ Run completed with status: {run.status}")
                 
@@ -261,13 +315,14 @@ def _run_bing_grounding_sync(symbol: str, limit: int, lookback_days: int) -> Lis
                 print(f"✅ Successfully parsed {len(news_items)} news items")
                 return news_items
                 
-            finally:
-                # Clean up: delete the agent
-                try:
-                    agents_client.delete_agent(agent.id)
-                    print(f"🗑️ Agent {agent.id} deleted")
-                except Exception as e:
-                    print(f"⚠️ Failed to delete agent: {e}")
+            except Exception as thread_error:
+                print(f"❌ Error during agent execution: {thread_error}")
+                # If there's an error with the cached agent, invalidate it
+                if "agent" in str(thread_error).lower() or "not found" in str(thread_error).lower():
+                    print("� Invalidating cached agent due to error")
+                    global _financial_news_agent
+                    _financial_news_agent = None
+                raise
     
     except Exception as e:
         print(f"❌ Error in Bing grounding agent: {str(e)}")
@@ -294,6 +349,23 @@ async def get_news_via_bing_grounding(symbol: str, limit: int = 3, lookback_days
         print(f"❌ Error in async news agent: {str(e)}")
         # Return empty list on error - let the frontend handle fallbacks
         return []
+
+def cleanup_financial_news_agent():
+    """
+    Clean up the persistent FinancialNewsAgent when application shuts down.
+    This is optional but good for resource management.
+    """
+    global _financial_news_agent, _agents_client
+    
+    if _financial_news_agent and _agents_client:
+        try:
+            _agents_client.delete_agent(_financial_news_agent.id)
+            print(f"🗑️ FinancialNewsAgent {_financial_news_agent.id} deleted during cleanup")
+        except Exception as e:
+            print(f"⚠️ Failed to delete FinancialNewsAgent during cleanup: {e}")
+        finally:
+            _financial_news_agent = None
+            _agents_client = None
 
 # For testing
 if __name__ == "__main__":
