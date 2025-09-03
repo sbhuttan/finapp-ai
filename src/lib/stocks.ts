@@ -356,16 +356,28 @@ export async function getStockOverview(symbol: string, range: PriceRange): Promi
 export async function getStockNews(symbol: string, limit: number = 10): Promise<NewsItem[]> {
   const s = sanitizeSymbol(symbol)
   
+  console.log('🔍 getStockNews called for symbol:', s)
+  console.log('🔧 BACKEND_CONFIG:', BACKEND_CONFIG)
+  
   try {
     if (BACKEND_CONFIG.type === 'python') {
-      const response = await fetch(`${BACKEND_CONFIG.pythonUrl}/api/stock/news?symbol=${s}&limit=${limit}`)
+      const url = `${BACKEND_CONFIG.pythonUrl}/api/stock/news?symbol=${s}&limit=${limit}`
+      console.log('📞 Calling Python backend:', url)
+      
+      const response = await fetch(url)
+      console.log('📡 Response status:', response.status)
+      
       if (!response.ok) throw new Error(`Backend returned ${response.status}`)
-      return await response.json()
+      
+      const data = await response.json()
+      console.log('📰 Received news data:', data)
+      return data
     } else {
+      console.log('📝 Using mock news data')
       return getNews(s, limit)
     }
   } catch (err) {
-    console.warn('Failed to fetch news, falling back to mock:', err)
+    console.warn('❌ Failed to fetch news, falling back to mock:', err)
     return getNews(s, limit)
   }
 }

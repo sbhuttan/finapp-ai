@@ -4,8 +4,12 @@
  */
 
 export const BACKEND_CONFIG = {
-  type: process.env.BACKEND_TYPE || 'nextjs', // 'python' or 'nextjs'
-  pythonUrl: process.env.PYTHON_BACKEND_URL || 'http://localhost:8000',
+  type: (typeof window !== 'undefined' ? 
+    process.env.NEXT_PUBLIC_BACKEND_TYPE : 
+    process.env.BACKEND_TYPE) || 'nextjs', // 'python' or 'nextjs'
+  pythonUrl: (typeof window !== 'undefined' ? 
+    process.env.NEXT_PUBLIC_PYTHON_BACKEND_URL : 
+    process.env.PYTHON_BACKEND_URL) || 'http://localhost:8000',
 } as const
 
 export type BackendType = typeof BACKEND_CONFIG.type

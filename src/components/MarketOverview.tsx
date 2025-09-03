@@ -8,6 +8,14 @@ import { formatCurrency } from '../lib/format'
 
 const Line = dynamic(() => import('react-chartjs-2').then((m) => m.Line), { ssr: false })
 
+interface TopMover {
+  symbol: string
+  name: string
+  price: number
+  change: number
+  changePercent: number
+}
+
 interface Props {
   initialData: IndexQuote[]
   initialRange: RangeKey
@@ -31,6 +39,13 @@ export default function MarketOverview({ initialData, initialRange }: Props) {
   const [chartReady, setChartReady] = useState(false)
   const [realtimeLoading, setRealtimeLoading] = useState(false)
   const [retryCount, setRetryCount] = useState(0)
+  
+  // State for top movers
+  const [topMovers, setTopMovers] = useState<{ gainers: TopMover[]; losers: TopMover[] }>({
+    gainers: [],
+    losers: []
+  })
+  const [moversLoading, setMoversLoading] = useState(true)
 
   useEffect(() => {
     // register Chart.js client-side
@@ -143,24 +158,31 @@ export default function MarketOverview({ initialData, initialRange }: Props) {
     }
   }, [retryCount]) // Re-run when retryCount changes for backoff
 
+  // Fetch top movers on component mount and periodically
+  useEffect(() => {
+    const fetchTopMovers = async () => {
+      try {
+        setMoversLoading(true)
+        const response = await axios.get('/api/market/top-movers')
+        setTopMovers(response.data)
+      } catch (error) {
+        console.error('Failed to fetch top movers:', error)
+        // Keep existing data on error
+      } finally {
+        setMoversLoading(false)
+      }
+    }
+
+    // Initial fetch
+    fetchTopMovers()
+
+    // Set up periodic refresh (every 5 minutes)
+    const interval = setInterval(fetchTopMovers, 5 * 60 * 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
   const selectedQuote = useMemo(() => dataMap[selected], [dataMap, selected])
-
-  // static mock top-movers for the MVP
-  const mockGainers: { symbol: string; name: string; change: number }[] = [
-    { symbol: 'AAPL', name: 'Apple Inc.', change: 3.21 },
-    { symbol: 'MSFT', name: 'Microsoft Corp.', change: 2.74 },
-    { symbol: 'NVDA', name: 'NVIDIA Corp.', change: 2.13 },
-    { symbol: 'AMZN', name: 'Amazon.com Inc.', change: 1.95 },
-    { symbol: 'TSLA', name: 'Tesla Inc.', change: 1.42 },
-  ]
-
-  const mockLosers: { symbol: string; name: string; change: number }[] = [
-    { symbol: 'XOM', name: 'Exxon Mobil Corp.', change: -2.34 },
-    { symbol: 'BA', name: 'Boeing Co.', change: -1.85 },
-    { symbol: 'WMT', name: 'Walmart Inc.', change: -1.48 },
-    { symbol: 'PFE', name: 'Pfizer Inc.', change: -1.12 },
-    { symbol: 'JNJ', name: 'Johnson & Johnson', change: -0.94 },
-  ]
 
   async function fetchRangeForSymbol(symbol: IndexSymbol, newRange: RangeKey) {
     setLoading(true)
@@ -289,52 +311,94 @@ export default function MarketOverview({ initialData, initialRange }: Props) {
           <h2 id="top-movers" className="sr-only">Top movers</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 bg-gray-50 rounded" aria-labelledby="gainers-heading">
-              <h3 id="gainers-heading" className="font-semibold mb-2">Top Gainers</h3>
+              <h3 id="gainers-heading" className="font-semibold mb-2">
+                Top Gainers
+                {moversLoading && <span className="ml-2 text-xs text-gray-500">Loading...</span>}
+              </h3>
               <div className="overflow-auto">
                 <table className="min-w-full text-sm" role="table" aria-label="Top gainers">
                   <thead className="text-left text-xs text-gray-500">
                     <tr>
                       <th className="py-2">Symbol</th>
                       <th className="py-2">Name</th>
+                      <th className="py-2 text-right">Price</th>
                       <th className="py-2 text-right">Change</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {mockGainers.map((row) => (
-                      <tr key={row.symbol} className="border-t">
-                        <td className="py-2 font-mono">
-                          <Link href={`/stock/${row.symbol}`}>{row.symbol}</Link>
-                        </td>
-                        <td className="py-2 text-gray-700">{row.name}</td>
-                        <td className="py-2 text-right text-green-600">{row.change > 0 ? `+${row.change.toFixed(2)}%` : `${row.change.toFixed(2)}%`}</td>
-                      </tr>
-                    ))}
+                    {moversLoading ? (
+                      // Loading skeleton
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <tr key={i} className="border-t animate-pulse">
+                          <td className="py-2"><div className="h-4 bg-gray-200 rounded w-12"></div></td>
+                          <td className="py-2"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
+                          <td className="py-2 text-right"><div className="h-4 bg-gray-200 rounded w-16 ml-auto"></div></td>
+                          <td className="py-2 text-right"><div className="h-4 bg-gray-200 rounded w-12 ml-auto"></div></td>
+                        </tr>
+                      ))
+                    ) : (
+                      topMovers.gainers.map((row) => (
+                        <tr key={row.symbol} className="border-t">
+                          <td className="py-2 font-mono">
+                            <Link href={`/stock/${row.symbol}`} className="hover:text-blue-600">
+                              {row.symbol}
+                            </Link>
+                          </td>
+                          <td className="py-2 text-gray-700">{row.name}</td>
+                          <td className="py-2 text-right">${row.price.toFixed(2)}</td>
+                          <td className="py-2 text-right text-green-600">
+                            +{row.changePercent.toFixed(2)}%
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
 
             <div className="p-4 bg-gray-50 rounded" aria-labelledby="losers-heading">
-              <h3 id="losers-heading" className="font-semibold mb-2">Top Losers</h3>
+              <h3 id="losers-heading" className="font-semibold mb-2">
+                Top Losers
+                {moversLoading && <span className="ml-2 text-xs text-gray-500">Loading...</span>}
+              </h3>
               <div className="overflow-auto">
                 <table className="min-w-full text-sm" role="table" aria-label="Top losers">
                   <thead className="text-left text-xs text-gray-500">
                     <tr>
                       <th className="py-2">Symbol</th>
                       <th className="py-2">Name</th>
+                      <th className="py-2 text-right">Price</th>
                       <th className="py-2 text-right">Change</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {mockLosers.map((row) => (
-                      <tr key={row.symbol} className="border-t">
-                        <td className="py-2 font-mono">
-                          <Link href={`/stock/${row.symbol}`}>{row.symbol}</Link>
-                        </td>
-                        <td className="py-2 text-gray-700">{row.name}</td>
-                        <td className="py-2 text-right text-red-600">{row.change < 0 ? `${row.change.toFixed(2)}%` : `+${row.change.toFixed(2)}%`}</td>
-                      </tr>
-                    ))}
+                    {moversLoading ? (
+                      // Loading skeleton
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <tr key={i} className="border-t animate-pulse">
+                          <td className="py-2"><div className="h-4 bg-gray-200 rounded w-12"></div></td>
+                          <td className="py-2"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
+                          <td className="py-2 text-right"><div className="h-4 bg-gray-200 rounded w-16 ml-auto"></div></td>
+                          <td className="py-2 text-right"><div className="h-4 bg-gray-200 rounded w-12 ml-auto"></div></td>
+                        </tr>
+                      ))
+                    ) : (
+                      topMovers.losers.map((row) => (
+                        <tr key={row.symbol} className="border-t">
+                          <td className="py-2 font-mono">
+                            <Link href={`/stock/${row.symbol}`} className="hover:text-blue-600">
+                              {row.symbol}
+                            </Link>
+                          </td>
+                          <td className="py-2 text-gray-700">{row.name}</td>
+                          <td className="py-2 text-right">${row.price.toFixed(2)}</td>
+                          <td className="py-2 text-right text-red-600">
+                            {row.changePercent.toFixed(2)}%
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
