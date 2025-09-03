@@ -2,6 +2,7 @@ import Head from 'next/head'
 import type { GetServerSideProps, NextPage } from 'next'
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
+import Link from 'next/link'
 import { getStockOverview, getStockNews, PriceRange, StockOverview, NewsItem } from '../../lib/stocks'
 import StockHeader from '../../components/StockHeader'
 import PriceRangeToggle from '../../components/PriceRangeToggle'
@@ -61,6 +62,12 @@ const StockPage: NextPage<Props> = ({ initial, initialRange, symbol }) => {
 
         <div className="mt-4 flex items-center justify-between">
           <PriceRangeToggle range={range} onChange={handleRangeChange} />
+          <Link
+            href={`/analysis/${symbol}`}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+          >
+            🔍 Deeper Analysis
+          </Link>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3 mt-4">

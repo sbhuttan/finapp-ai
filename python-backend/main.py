@@ -8,12 +8,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
 
-# Import our news agent
+# Import our agents
 from agents.news_agent import get_news_via_bing_grounding, cleanup_financial_news_agent
+from agents.market_analysis_agent_projects import get_market_analysis_async, cleanup_market_analysis_agent
+from agents.sentiment_analysis_agent_projects import get_sentiment_analysis_async, cleanup_sentiment_analysis_agent
+from agents.risk_analysis_agent_projects import get_risk_analysis_async, cleanup_risk_analysis_agent
 
 app = FastAPI(title="Market Analysis AI - Python Backend", version="1.0.0")
 
@@ -32,6 +36,9 @@ async def shutdown_event():
     """Clean up resources when the application shuts down"""
     print("🔄 Application shutting down, cleaning up resources...")
     cleanup_financial_news_agent()
+    cleanup_market_analysis_agent()
+    cleanup_sentiment_analysis_agent()
+    cleanup_risk_analysis_agent()
     print("✅ Cleanup completed")
 
 class NewsItem(BaseModel):
@@ -228,6 +235,93 @@ def generate_mock_movers() -> TopMoversResponse:
         gainers=sorted_movers[:5],  # Top 5 gainers
         losers=sorted_movers[-5:][::-1]  # Top 5 losers (reversed to show worst first)
     )
+
+@app.get("/api/analysis/market/{symbol}")
+async def get_market_analysis(symbol: str):
+    """
+    Get comprehensive market analysis for a stock symbol using Azure AI
+    """
+    try:
+        print(f"📊 Getting market analysis for {symbol}...")
+        analysis = await get_market_analysis_async(symbol.upper())
+        print(f"✅ Market analysis completed for {symbol}")
+        return analysis.to_dict()
+    except Exception as e:
+        print(f"❌ Error getting market analysis for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get market analysis: {str(e)}")
+
+@app.get("/api/analysis/sentiment/{symbol}")
+async def get_sentiment_analysis(symbol: str):
+    """
+    Get comprehensive sentiment analysis for a stock symbol using Azure AI
+    """
+    try:
+        print(f"💭 Getting sentiment analysis for {symbol}...")
+        analysis = await get_sentiment_analysis_async(symbol.upper())
+        print(f"✅ Sentiment analysis completed for {symbol}")
+        return analysis.to_dict()
+    except Exception as e:
+        print(f"❌ Error getting sentiment analysis for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get sentiment analysis: {str(e)}")
+
+@app.get("/api/analysis/risk/{symbol}")
+async def get_risk_analysis(symbol: str):
+    """
+    Get comprehensive risk analysis for a stock symbol using Azure AI
+    """
+    try:
+        print(f"⚠️ Getting risk analysis for {symbol}...")
+        analysis = await get_risk_analysis_async(symbol.upper())
+        print(f"✅ Risk analysis completed for {symbol}")
+        return analysis.to_dict()
+    except Exception as e:
+        print(f"❌ Error getting risk analysis for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get risk analysis: {str(e)}")
+
+@app.get("/api/analysis/all/{symbol}")
+async def get_all_analysis(symbol: str):
+    """
+    Get all three types of analysis (market, sentiment, risk) for a stock symbol
+    """
+    try:
+        print(f"🔍 Getting comprehensive analysis for {symbol}...")
+        
+        # Run all analyses concurrently
+        import asyncio
+        market_task = get_market_analysis_async(symbol.upper())
+        sentiment_task = get_sentiment_analysis_async(symbol.upper())
+        risk_task = get_risk_analysis_async(symbol.upper())
+        
+        market_analysis, sentiment_analysis, risk_analysis = await asyncio.gather(
+            market_task, sentiment_task, risk_task
+        )
+        
+        print(f"✅ Comprehensive analysis completed for {symbol}")
+        
+        return {
+            "symbol": symbol.upper(),
+            "market_analysis": market_analysis.to_dict(),
+            "sentiment_analysis": sentiment_analysis.to_dict(),
+            "risk_analysis": risk_analysis.to_dict(),
+            "generated_at": datetime.now().isoformat()
+        }
+    except Exception as e:
+        print(f"❌ Error getting comprehensive analysis for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get comprehensive analysis: {str(e)}")
+
+@app.get("/api/stock/news/{symbol}")
+async def get_stock_news(symbol: str, limit: int = Query(10, description="Number of news items")):
+    """
+    Get financial news for a stock symbol using Azure AI News Agent
+    """
+    try:
+        print(f"📰 Getting news for {symbol} (limit: {limit})...")
+        news_items = await get_news_via_bing_grounding(symbol.upper(), limit)
+        print(f"✅ Retrieved {len(news_items)} news items for {symbol}")
+        return [item.to_dict() for item in news_items]
+    except Exception as e:
+        print(f"❌ Error getting news for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get news: {str(e)}")
 
 @app.get("/api/market/top-movers", response_model=TopMoversResponse)
 async def get_top_movers():
