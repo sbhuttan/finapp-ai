@@ -9,6 +9,18 @@ A Next.js application that provides financial market analysis, stock information
 - 🤖 AI-powered stock Q&A using Azure AI Foundry
 - 📊 Earnings data and financial metrics
 - 🎯 Market overview and key statistics
+- 🔍 **Deeper Analysis** - Comprehensive AI-powered stock analysis with Market Analysis, Sentiment Analysis, and Risk Analysis
+
+## Screenshots
+
+### Deeper Analysis Feature
+![Deeper Analysis](./images/deeper-analysis.jpg)
+
+*The Deeper Analysis feature provides comprehensive AI-powered analysis including Market Analysis, Sentiment Analysis, and Risk Analysis for any stock.*
+
+## Documentation
+
+- 📋 **[Deeper Analysis Feature Guide](./DEEPER_ANALYSIS_README.md)** - Complete documentation for the AI-powered analysis features
 
 ## Setup
 
