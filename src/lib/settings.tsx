@@ -4,6 +4,7 @@ export interface VisibilitySettings {
   // Navigation tabs
   showHome: boolean
   showEarnings: boolean
+  showHeatmap: boolean
   showSearchStocks: boolean
   
   // Stock page sections
@@ -22,6 +23,7 @@ const defaultSettings: VisibilitySettings = {
   // Navigation tabs
   showHome: true,
   showEarnings: true,
+  showHeatmap: true,
   showSearchStocks: true,
   
   // Stock page sections

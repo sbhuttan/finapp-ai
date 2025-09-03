@@ -14,8 +14,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const handleToggle = (key: keyof VisibilitySettings) => {
     // Prevent hiding all navigation tabs
-    if (key === 'showHome' || key === 'showEarnings' || key === 'showSearchStocks') {
-      const navTabsCount = [settings.showHome, settings.showEarnings, settings.showSearchStocks].filter(Boolean).length
+    if (key === 'showHome' || key === 'showEarnings' || key === 'showHeatmap' || key === 'showSearchStocks') {
+      const navTabsCount = [settings.showHome, settings.showEarnings, settings.showHeatmap, settings.showSearchStocks].filter(Boolean).length
       if (navTabsCount === 1 && settings[key]) {
         // Don't allow hiding the last navigation tab
         setNotification('At least one navigation tab must remain visible')
@@ -72,7 +72,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 onChange={() => handleToggle('showEarnings')}
               />
               <SettingToggle
-                label="Search Stocks"
+                label="Heatmap"
+                description="S&P 500 stocks heatmap by market cap"
+                checked={settings.showHeatmap}
+                onChange={() => handleToggle('showHeatmap')}
+              />
+              <SettingToggle
+                label="Stock Analysis"
                 description="Stock search and individual analysis"
                 checked={settings.showSearchStocks}
                 onChange={() => handleToggle('showSearchStocks')}

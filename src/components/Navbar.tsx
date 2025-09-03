@@ -26,8 +26,11 @@ export default function Navbar() {
                 {settings.showEarnings && (
                   <Link href="/earnings" className="py-5 px-3 text-gray-700 hover:text-gray-900">Earnings</Link>
                 )}
+                {settings.showHeatmap && (
+                  <Link href="/heatmap" className="py-5 px-3 text-gray-700 hover:text-gray-900">Heatmap</Link>
+                )}
                 {settings.showSearchStocks && (
-                  <Link href="/stock" className="py-5 px-3 text-gray-700 hover:text-gray-900">Search Stocks</Link>
+                  <Link href="/stock" className="py-5 px-3 text-gray-700 hover:text-gray-900">Stock Analysis</Link>
                 )}
               </div>
             </div>
@@ -67,8 +70,11 @@ export default function Navbar() {
               {settings.showEarnings && (
                 <Link href="/earnings" className="block py-2 px-4 text-gray-700 hover:bg-gray-100">Earnings</Link>
               )}
+              {settings.showHeatmap && (
+                <Link href="/heatmap" className="block py-2 px-4 text-gray-700 hover:bg-gray-100">Heatmap</Link>
+              )}
               {settings.showSearchStocks && (
-                <Link href="/stock" className="block py-2 px-4 text-gray-700 hover:bg-gray-100">Search Stocks</Link>
+                <Link href="/stock" className="block py-2 px-4 text-gray-700 hover:bg-gray-100">Stock Analysis</Link>
               )}
             </div>
           )}
