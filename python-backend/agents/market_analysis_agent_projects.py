@@ -17,10 +17,6 @@ from azure.identity import DefaultAzureCredential
 # Thread pool executor for async operations
 executor = ThreadPoolExecutor(max_workers=4)
 
-# Global client cache
-_project_client = None
-_agents_client = None
-
 class MarketAnalysis:
     def __init__(self, symbol: str, analysis: str, technical_indicators: Dict, 
                  sector_analysis: str, competitive_position: str, market_outlook: str):
@@ -55,29 +51,6 @@ def get_required_env_vars():
     
     return project_endpoint, model_deployment
 
-def create_project_client():
-    """Create Azure AI Project client"""
-    global _project_client, _agents_client
-    
-    if _project_client is not None:
-        return _project_client, _agents_client
-    
-    try:
-        project_endpoint, model_deployment = get_required_env_vars()
-        
-        _project_client = AIProjectClient(
-            endpoint=project_endpoint,
-            credential=DefaultAzureCredential(),
-        )
-        _agents_client = _project_client.agents
-        
-        print(f"✅ Azure AI Project client initialized successfully")
-        return _project_client, _agents_client
-        
-    except Exception as e:
-        print(f"❌ Failed to initialize Azure AI Project client: {e}")
-        raise
-
 def create_market_analysis_prompt(symbol: str) -> str:
     """Create a specialized prompt for market analysis"""
     return f"""You are an expert financial market analyst with deep expertise in technical analysis, 
@@ -87,10 +60,14 @@ Please conduct a thorough analysis covering:
 
 1. **Technical Analysis**:
    - Current price trends and momentum
-   - Key support and resistance levels
-   - Moving averages (50-day, 200-day)
-   - Volume analysis
-   - Technical indicators (RSI, MACD, Bollinger Bands)
+   - Key support and resistance levels (provide specific price levels)
+   - Moving averages: 50-day MA and 200-day MA (provide current values)
+   - Volume analysis and patterns
+   - Technical indicators with specific values:
+     * RSI: [provide current RSI value]
+     * MACD: [provide current MACD value]
+     * Bollinger Bands position
+   - Chart patterns and technical signals
 
 2. **Sector Analysis**:
    - Current sector performance and trends
@@ -116,6 +93,14 @@ Please conduct a thorough analysis covering:
    - Key catalysts to watch
    - Potential risks and opportunities
 
+IMPORTANT: Please provide specific numerical values for technical indicators:
+- RSI: [number between 0-100]
+- MACD: [specific value]
+- Support Level: $[price]
+- Resistance Level: $[price]
+- 50-day MA: $[price]
+- 200-day MA: $[price]
+
 Based on current market data and recent developments, provide specific data points 
 and cite recent market developments that support your analysis.
 
@@ -125,67 +110,82 @@ where possible (RSI values, support/resistance levels, etc.) and provide reasoni
 
 def run_market_analysis(symbol: str) -> MarketAnalysis:
     """Run market analysis for a given stock symbol"""
+    project_client = None
+    agents_client = None
+    agent = None
+    
     try:
-        project_client, agents_client = create_project_client()
         project_endpoint, model_deployment = get_required_env_vars()
         
-        with project_client:
-            # Create agent for market analysis
-            agent = agents_client.create_agent(
-                model=model_deployment,
-                name=f"market-analyst-{symbol}",
-                instructions="""You are an expert financial market analyst specializing in comprehensive stock analysis.
-                You provide detailed technical analysis, sector insights, competitive positioning, and market outlook.
-                Always provide specific data points, numerical values, and clear reasoning for your assessments.
-                Structure your analysis with clear sections and include actionable insights.""",
-                tools=[],  # No special tools needed for this analysis
-            )
+        # Create Azure AI Project client
+        project_client = AIProjectClient(
+            endpoint=project_endpoint,
+            credential=DefaultAzureCredential(),
+        )
+        agents_client = project_client.agents
+        
+        print(f"✅ Azure AI Project client initialized successfully")
+        
+        # Create agent for market analysis
+        agent = agents_client.create_agent(
+            model=model_deployment,
+            name=f"market-analyst-{symbol}",
+            instructions="""You are an expert financial market analyst specializing in comprehensive stock analysis.
+            You provide detailed technical analysis, sector insights, competitive positioning, and market outlook.
             
-            print(f"Created market analysis agent, ID: {agent.id}")
+            CRITICAL: Always provide specific numerical values for technical indicators in your Technical Analysis section:
+            - RSI: [provide exact number between 0-100]
+            - MACD: [provide exact numerical value]
+            - Support Level: $[provide exact price level]
+            - Resistance Level: $[provide exact price level]  
+            - 50-day MA: $[provide exact moving average price]
+            - 200-day MA: $[provide exact moving average price]
             
-            # Create thread for communication
-            thread = agents_client.threads.create()
-            print(f"Created thread, ID: {thread.id}")
-            
-            # Create the analysis prompt
-            prompt = create_market_analysis_prompt(symbol)
-            
-            # Create message to thread
-            message = agents_client.messages.create(
-                thread_id=thread.id,
-                role="user",
-                content=prompt,
-            )
-            print(f"Created message, ID: {message.id}")
-            
-            # Create and process agent run
-            run = agents_client.runs.create_and_process(
-                thread_id=thread.id, 
-                agent_id=agent.id
-            )
-            print(f"Market analysis run finished with status: {run.status}")
-            
-            if run.status == "failed":
-                print(f"Run failed: {run.last_error}")
-                raise Exception(f"Analysis failed: {run.last_error}")
-            
-            # Get the analysis result
-            messages = agents_client.messages.list(thread_id=thread.id)
-            analysis_text = ""
-            
-            for msg in messages:
-                if msg.role == "assistant" and msg.text_messages:
-                    analysis_text = msg.text_messages[-1].text.value
-                    break
-            
-            # Clean up the agent
-            agents_client.delete_agent(agent.id)
-            print("Deleted market analysis agent")
-            
-            # Parse the analysis into structured format
-            parsed_analysis = parse_market_analysis(analysis_text, symbol)
-            
-            return parsed_analysis
+            Structure your analysis with clear sections and include actionable insights with specific data points.""",
+            tools=[],  # No special tools needed for this analysis
+        )
+        
+        print(f"Created market analysis agent, ID: {agent.id}")
+        
+        # Create thread for communication
+        thread = agents_client.threads.create()
+        print(f"Created thread, ID: {thread.id}")
+        
+        # Create the analysis prompt
+        prompt = create_market_analysis_prompt(symbol)
+        
+        # Create message to thread
+        message = agents_client.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=prompt,
+        )
+        print(f"Created message, ID: {message.id}")
+        
+        # Create and process agent run
+        run = agents_client.runs.create_and_process(
+            thread_id=thread.id, 
+            agent_id=agent.id
+        )
+        print(f"Market analysis run finished with status: {run.status}")
+        
+        if run.status == "failed":
+            print(f"Run failed: {run.last_error}")
+            raise Exception(f"Analysis failed: {run.last_error}")
+        
+        # Get the analysis result
+        messages = agents_client.messages.list(thread_id=thread.id)
+        analysis_text = ""
+        
+        for msg in messages:
+            if msg.role == "assistant" and msg.text_messages:
+                analysis_text = msg.text_messages[-1].text.value
+                break
+        
+        # Parse the analysis into structured format
+        parsed_analysis = parse_market_analysis(analysis_text, symbol)
+        
+        return parsed_analysis
         
     except Exception as e:
         print(f"❌ Error running market analysis for {symbol}: {e}")
@@ -196,8 +196,25 @@ def run_market_analysis(symbol: str) -> MarketAnalysis:
             technical_indicators={},
             sector_analysis="Analysis unavailable",
             competitive_position="Analysis unavailable", 
-            market_outlook="Analysis unavailable"
+            market_outlook="Analysis unavailable",
+            generated_at=datetime.now().isoformat()
         )
+    
+    finally:
+        # Clean up resources
+        try:
+            if agent and agents_client:
+                agents_client.delete_agent(agent.id)
+                print("Deleted market analysis agent")
+        except Exception as cleanup_error:
+            print(f"⚠️ Error cleaning up agent: {cleanup_error}")
+        
+        try:
+            if project_client:
+                project_client.close()
+                print("Closed project client")
+        except Exception as cleanup_error:
+            print(f"⚠️ Error closing project client: {cleanup_error}")
 
 def parse_market_analysis(analysis_text: str, symbol: str) -> MarketAnalysis:
     """Parse the market analysis text into structured format"""
@@ -233,24 +250,88 @@ def extract_technical_indicators(text: str) -> Dict:
     """Extract technical indicators from analysis text"""
     indicators = {}
     
-    # Look for common technical indicators
+    print(f"🔍 Extracting technical indicators from text length: {len(text)}")
+    
+    # Enhanced patterns with more variations
     patterns = {
-        "RSI": r"RSI[:\s]*(\d+\.?\d*)",
-        "MACD": r"MACD[:\s]*([+-]?\d+\.?\d*)",
-        "Support": r"support[:\s]*\$?(\d+\.?\d*)",
-        "Resistance": r"resistance[:\s]*\$?(\d+\.?\d*)",
-        "50_day_ma": r"50[- ]?day.*moving average[:\s]*\$?(\d+\.?\d*)",
-        "200_day_ma": r"200[- ]?day.*moving average[:\s]*\$?(\d+\.?\d*)"
+        "RSI": [
+            r"RSI[:\s]*(\d+\.?\d*)",
+            r"relative.*strength.*index[:\s]*(\d+\.?\d*)",
+            r"RSI.*?(\d+\.?\d*)"
+        ],
+        "MACD": [
+            r"MACD[:\s]*([+-]?\d+\.?\d*)",
+            r"moving.*average.*convergence[:\s]*([+-]?\d+\.?\d*)",
+            r"MACD.*?([+-]?\d+\.?\d*)"
+        ],
+        "Support": [
+            r"support[:\s]*\$?(\d+\.?\d*)",
+            r"support.*level[:\s]*\$?(\d+\.?\d*)",
+            r"key.*support[:\s]*\$?(\d+\.?\d*)"
+        ],
+        "Resistance": [
+            r"resistance[:\s]*\$?(\d+\.?\d*)",
+            r"resistance.*level[:\s]*\$?(\d+\.?\d*)",
+            r"key.*resistance[:\s]*\$?(\d+\.?\d*)"
+        ],
+        "50_day_ma": [
+            r"50[- ]?day.*moving average[:\s]*\$?(\d+\.?\d*)",
+            r"50[- ]?day.*MA[:\s]*\$?(\d+\.?\d*)",
+            r"50.*day.*average[:\s]*\$?(\d+\.?\d*)"
+        ],
+        "200_day_ma": [
+            r"200[- ]?day.*moving average[:\s]*\$?(\d+\.?\d*)",
+            r"200[- ]?day.*MA[:\s]*\$?(\d+\.?\d*)",
+            r"200.*day.*average[:\s]*\$?(\d+\.?\d*)"
+        ]
     }
     
-    for indicator, pattern in patterns.items():
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                indicators[indicator] = float(match.group(1))
-            except ValueError:
-                indicators[indicator] = match.group(1)
+    # Try multiple patterns for each indicator
+    for indicator, pattern_list in patterns.items():
+        found = False
+        for pattern in pattern_list:
+            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+            if match:
+                try:
+                    value = float(match.group(1))
+                    indicators[indicator] = value
+                    print(f"✅ Found {indicator}: {value}")
+                    found = True
+                    break
+                except (ValueError, IndexError):
+                    continue
+        
+        if not found:
+            print(f"❌ Could not find {indicator} in text")
     
+    # Also look for any numerical values in technical analysis section
+    tech_section = extract_section(text, "Technical Analysis", "Sector Analysis")
+    if tech_section:
+        print(f"📊 Technical Analysis section found: {len(tech_section)} chars")
+        # Extract any numbers that might be indicators
+        number_matches = re.findall(r'(\w+)[:\s]*(\d+\.?\d*)', tech_section, re.IGNORECASE)
+        for term, value in number_matches:
+            term_lower = term.lower()
+            try:
+                val = float(value)
+                if 'rsi' in term_lower and 'RSI' not in indicators:
+                    indicators['RSI'] = val
+                elif 'macd' in term_lower and 'MACD' not in indicators:
+                    indicators['MACD'] = val
+                elif 'support' in term_lower and 'Support' not in indicators:
+                    indicators['Support'] = val
+                elif 'resistance' in term_lower and 'Resistance' not in indicators:
+                    indicators['Resistance'] = val
+                elif ('50' in term_lower or 'fifty' in term_lower) and 'ma' in term_lower and '50_day_ma' not in indicators:
+                    indicators['50_day_ma'] = val
+                elif ('200' in term_lower or 'two hundred' in term_lower) and 'ma' in term_lower and '200_day_ma' not in indicators:
+                    indicators['200_day_ma'] = val
+            except ValueError:
+                continue
+    else:
+        print("❌ No Technical Analysis section found")
+    
+    print(f"📈 Final technical indicators extracted: {indicators}")
     return indicators
 
 def extract_section(text: str, start_marker: str, end_marker: str) -> str:
@@ -283,11 +364,7 @@ async def get_market_analysis_async(symbol: str) -> MarketAnalysis:
 
 def cleanup_market_analysis_agent():
     """Clean up the market analysis agent resources"""
-    global _project_client, _agents_client
-    
     try:
-        _project_client = None
-        _agents_client = None
         print("✅ Market Analysis Agent cleaned up")
     except Exception as e:
         print(f"⚠️ Error cleaning up Market Analysis Agent: {e}")

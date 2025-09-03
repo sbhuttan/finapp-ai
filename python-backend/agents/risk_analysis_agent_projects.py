@@ -17,10 +17,6 @@ from azure.identity import DefaultAzureCredential
 # Thread pool executor for async operations
 executor = ThreadPoolExecutor(max_workers=4)
 
-# Global client cache
-_project_client = None
-_agents_client = None
-
 class RiskAnalysis:
     def __init__(self, symbol: str, overall_risk_rating: str, risk_score: float,
                  financial_risks: Dict, market_risks: Dict, operational_risks: Dict,
@@ -64,29 +60,6 @@ def get_required_env_vars():
         raise ValueError("MODEL_DEPLOYMENT_NAME environment variable is required")
     
     return project_endpoint, model_deployment
-
-def create_project_client():
-    """Create Azure AI Project client"""
-    global _project_client, _agents_client
-    
-    if _project_client is not None:
-        return _project_client, _agents_client
-    
-    try:
-        project_endpoint, model_deployment = get_required_env_vars()
-        
-        _project_client = AIProjectClient(
-            endpoint=project_endpoint,
-            credential=DefaultAzureCredential(),
-        )
-        _agents_client = _project_client.agents
-        
-        print(f"✅ Azure AI Project client initialized successfully")
-        return _project_client, _agents_client
-        
-    except Exception as e:
-        print(f"❌ Failed to initialize Azure AI Project client: {e}")
-        raise
 
 def create_risk_analysis_prompt(symbol: str) -> str:
     """Create a specialized prompt for risk analysis"""
@@ -145,68 +118,75 @@ Use a 1-10 risk scale where 1=Very Low Risk and 10=Very High Risk.
 
 def run_risk_analysis(symbol: str) -> RiskAnalysis:
     """Run risk analysis for a given stock symbol"""
+    project_client = None
+    agents_client = None
+    agent = None
+    
     try:
-        project_client, agents_client = create_project_client()
         project_endpoint, model_deployment = get_required_env_vars()
         
-        with project_client:
-            # Create agent for risk analysis
-            agent = agents_client.create_agent(
-                model=model_deployment,
-                name=f"risk-analyst-{symbol}",
-                instructions="""You are an expert financial risk analyst specializing in comprehensive risk assessment.
-                You identify and assess financial risks, market risks, operational risks, and regulatory risks.
-                Always provide numerical risk scores and clear reasoning for your risk assessments.
-                Present findings in a structured format with specific risk factors and mitigation strategies.
-                Use a 1-10 risk scale where 1=Very Low Risk and 10=Very High Risk for all assessments.""",
-                tools=[],  # No special tools needed for this analysis
-            )
-            
-            print(f"Created risk analysis agent, ID: {agent.id}")
-            
-            # Create thread for communication
-            thread = agents_client.threads.create()
-            print(f"Created thread, ID: {thread.id}")
-            
-            # Create the analysis prompt
-            prompt = create_risk_analysis_prompt(symbol)
-            
-            # Create message to thread
-            message = agents_client.messages.create(
-                thread_id=thread.id,
-                role="user",
-                content=prompt,
-            )
-            print(f"Created message, ID: {message.id}")
-            
-            # Create and process agent run
-            run = agents_client.runs.create_and_process(
-                thread_id=thread.id, 
-                agent_id=agent.id
-            )
-            print(f"Risk analysis run finished with status: {run.status}")
-            
-            if run.status == "failed":
-                print(f"Run failed: {run.last_error}")
-                raise Exception(f"Analysis failed: {run.last_error}")
-            
-            # Get the analysis result
-            messages = agents_client.messages.list(thread_id=thread.id)
-            analysis_text = ""
-            
-            for msg in messages:
-                if msg.role == "assistant" and msg.text_messages:
-                    analysis_text = msg.text_messages[-1].text.value
-                    break
-            
-            # Clean up the agent
-            agents_client.delete_agent(agent.id)
-            print("Deleted risk analysis agent")
-            
-            # Parse the analysis into structured format
-            parsed_analysis = parse_risk_analysis(analysis_text, symbol)
-            
-            return parsed_analysis
+        # Create Azure AI Project client
+        project_client = AIProjectClient(
+            endpoint=project_endpoint,
+            credential=DefaultAzureCredential(),
+        )
+        agents_client = project_client.agents
+        
+        print(f"✅ Azure AI Project client initialized successfully")
+        
+        # Create agent for risk analysis
+        agent = agents_client.create_agent(
+            model=model_deployment,
+            name=f"risk-analyst-{symbol}",
+            instructions="""You are an expert financial risk analyst specializing in comprehensive risk assessment.
+            You identify and assess financial risks, market risks, operational risks, and regulatory risks.
+            Always provide numerical risk scores and clear reasoning for your risk assessments.
+            Present findings in a structured format with specific risk factors and mitigation strategies.
+            Use a 1-10 risk scale where 1=Very Low Risk and 10=Very High Risk for all assessments.""",
+            tools=[],  # No special tools needed for this analysis
+        )
+        
+        print(f"Created risk analysis agent, ID: {agent.id}")
+        
+        # Create thread for communication
+        thread = agents_client.threads.create()
+        print(f"Created thread, ID: {thread.id}")
+        
+        # Create the analysis prompt
+        prompt = create_risk_analysis_prompt(symbol)
+        
+        # Create message to thread
+        message = agents_client.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=prompt,
+        )
+        print(f"Created message, ID: {message.id}")
+        
+        # Create and process agent run
+        run = agents_client.runs.create_and_process(
+            thread_id=thread.id, 
+            agent_id=agent.id
+        )
+        print(f"Risk analysis run finished with status: {run.status}")
+        
+        if run.status == "failed":
+            print(f"Run failed: {run.last_error}")
+            raise Exception(f"Analysis failed: {run.last_error}")
+        
+        # Get the analysis result
+        messages = agents_client.messages.list(thread_id=thread.id)
+        analysis_text = ""
+        
+        for msg in messages:
+            if msg.role == "assistant" and msg.text_messages:
+                analysis_text = msg.text_messages[-1].text.value
+                break
+        
+        # Parse the analysis into structured format
+        parsed_analysis = parse_risk_analysis(analysis_text, symbol)
+        
+        return parsed_analysis
         
     except Exception as e:
         print(f"❌ Error running risk analysis for {symbol}: {e}")
@@ -223,6 +203,22 @@ def run_risk_analysis(symbol: str) -> RiskAnalysis:
             risk_mitigation=[],
             risk_summary=f"Risk analysis for {symbol} is currently unavailable due to technical issues: {str(e)}. Please try again later."
         )
+    
+    finally:
+        # Clean up resources
+        try:
+            if agent and agents_client:
+                agents_client.delete_agent(agent.id)
+                print("Deleted risk analysis agent")
+        except Exception as cleanup_error:
+            print(f"⚠️ Error cleaning up agent: {cleanup_error}")
+        
+        try:
+            if project_client:
+                project_client.close()
+                print("Closed project client")
+        except Exception as cleanup_error:
+            print(f"⚠️ Error closing project client: {cleanup_error}")
 
 def parse_risk_analysis(analysis_text: str, symbol: str) -> RiskAnalysis:
     """Parse the risk analysis text into structured format"""
@@ -420,11 +416,7 @@ async def get_risk_analysis_async(symbol: str) -> RiskAnalysis:
 
 def cleanup_risk_analysis_agent():
     """Clean up the risk analysis agent resources"""
-    global _project_client, _agents_client
-    
     try:
-        _project_client = None
-        _agents_client = None
         print("✅ Risk Analysis Agent cleaned up")
     except Exception as e:
         print(f"⚠️ Error cleaning up Risk Analysis Agent: {e}")
