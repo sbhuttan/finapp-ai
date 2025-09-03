@@ -1,8 +1,8 @@
 import Head from 'next/head'
 import type { GetServerSideProps, NextPage } from 'next'
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import axios from 'axios'
-import { getStockOverview, PriceRange, StockOverview } from '../../lib/stocks'
+import { getStockOverview, getStockNews, PriceRange, StockOverview, NewsItem } from '../../lib/stocks'
 import StockHeader from '../../components/StockHeader'
 import PriceRangeToggle from '../../components/PriceRangeToggle'
 import PriceChart from '../../components/PriceChart'
@@ -18,6 +18,25 @@ const StockPage: NextPage<Props> = ({ initial, initialRange, symbol }) => {
   const [range, setRange] = useState<PriceRange>(initialRange)
   const [history, setHistory] = useState(initial.history)
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [news, setNews] = useState<NewsItem[]>(initial.news)
+  const [loadingNews, setLoadingNews] = useState(true)
+
+  // Load news separately after page loads
+  useEffect(() => {
+    async function loadNews() {
+      try {
+        setLoadingNews(true)
+        const newsData = await getStockNews(symbol, 10)
+        setNews(newsData)
+      } catch (error) {
+        console.error('Failed to load news:', error)
+      } finally {
+        setLoadingNews(false)
+      }
+    }
+    
+    loadNews()
+  }, [symbol])
 
   async function handleRangeChange(r: PriceRange) {
     setRange(r)
@@ -48,7 +67,7 @@ const StockPage: NextPage<Props> = ({ initial, initialRange, symbol }) => {
           <div className="lg:col-span-2 space-y-6">
             <PriceChart data={history} loading={loadingHistory} />
             <EarningsMiniChart data={overview.earnings} />
-            <NewsList news={overview.news} />
+            <NewsList news={news} loading={loadingNews} />
           </div>
 
           <div className="space-y-6">

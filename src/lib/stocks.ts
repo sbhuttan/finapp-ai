@@ -110,7 +110,7 @@ function sanitizeSymbol(raw: string) {
   return s
 }
 
-function rangeToMinutes(range: PriceRange) {
+function rangeToMinutes(range: PriceRange): number {
   switch (range) {
     case '1D':
       return 5
@@ -124,6 +124,8 @@ function rangeToMinutes(range: PriceRange) {
       return 60 * 24
     case '5Y':
       return 60 * 24 * 7
+    default:
+      return 60 * 24 // Default to daily
   }
 }
 
@@ -168,12 +170,18 @@ async function generateMockHistory(symbol: string, range: PriceRange): Promise<C
         return 5 * 24 * 60 * 60 * 1000
       case '1M':
         return 30 * 24 * 60 * 60 * 1000
+      case '3M':
+        return 90 * 24 * 60 * 60 * 1000
       case '6M':
         return 180 * 24 * 60 * 60 * 1000
       case '1Y':
         return 365 * 24 * 60 * 60 * 1000
+      case '2Y':
+        return 2 * 365 * 24 * 60 * 60 * 1000
       case '5Y':
         return 5 * 365 * 24 * 60 * 60 * 1000
+      default:
+        return 180 * 24 * 60 * 60 * 1000 // Default to 6M
     }
   })()
   const step = minutes * 60 * 1000
@@ -333,23 +341,33 @@ export async function getNews(symbolRaw: string, limit = 5): Promise<NewsItem[]>
 export async function getStockOverview(symbol: string, range: PriceRange): Promise<StockOverview> {
   const s = sanitizeSymbol(symbol)
   
-  // Use backend API for news if Python backend is configured
-  const newsPromise = BACKEND_CONFIG.type === 'python' 
-    ? fetch(`${BACKEND_CONFIG.pythonUrl}/api/stock/news?symbol=${s}&limit=10`)
-        .then(res => res.json())
-        .catch(err => {
-          console.warn('Failed to fetch news from Python backend, falling back to mock:', err)
-          return getNews(s, 10)
-        })
-    : getNews(s, 10)
-  
-  const [quote, history, earnings, news] = await Promise.all([
+  // Load core data first (quote, history, earnings) without news
+  const [quote, history, earnings] = await Promise.all([
     getQuote(s),
     getPriceHistory(s, range),
     getEarningsHistory(s),
-    newsPromise,
   ])
-  return { quote, history, earnings, news }
+  
+  // Return with empty news array - news will be loaded separately
+  return { quote, history, earnings, news: [] }
+}
+
+// New function to load news separately
+export async function getStockNews(symbol: string, limit: number = 10): Promise<NewsItem[]> {
+  const s = sanitizeSymbol(symbol)
+  
+  try {
+    if (BACKEND_CONFIG.type === 'python') {
+      const response = await fetch(`${BACKEND_CONFIG.pythonUrl}/api/stock/news?symbol=${s}&limit=${limit}`)
+      if (!response.ok) throw new Error(`Backend returned ${response.status}`)
+      return await response.json()
+    } else {
+      return getNews(s, limit)
+    }
+  } catch (err) {
+    console.warn('Failed to fetch news, falling back to mock:', err)
+    return getNews(s, limit)
+  }
 }
 
 const SEARCH_SYMBOLS: SymbolHit[] = [
