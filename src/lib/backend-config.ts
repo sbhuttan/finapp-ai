@@ -10,6 +10,7 @@ export const BACKEND_CONFIG = {
   pythonUrl: (typeof window !== 'undefined' ? 
     process.env.NEXT_PUBLIC_PYTHON_BACKEND_URL : 
     process.env.PYTHON_BACKEND_URL) || 'http://localhost:8000',
+  baseUrl: 'http://localhost:8000', // Direct Python backend URL for server-side API routes
 } as const
 
 export type BackendType = typeof BACKEND_CONFIG.type

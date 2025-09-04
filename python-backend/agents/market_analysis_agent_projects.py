@@ -10,6 +10,7 @@ import re
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import MessageRole, BingGroundingTool
@@ -297,13 +298,31 @@ def run_market_analysis(symbol: str) -> MarketAnalysis:
             print(f"Created message, ID: {message.id}")
             
             # Create and process agent run
-            run = agents_client.runs.create_and_process(
-                thread_id=thread.id, 
-                agent_id=agent.id
-            )
-            print(f"Market analysis run finished with status: {run.status}")
-            
-            if run.status == "failed":
+            max_retries = 3
+            backoff = 1
+            run = None
+            for attempt in range(1, max_retries + 1):
+                run = agents_client.runs.create_and_process(
+                    thread_id=thread.id,
+                    agent_id=agent.id
+                )
+                print(f"Market analysis run finished with status: {run.status} (attempt {attempt})")
+
+                if run.status != "failed":
+                    break
+
+                # If failed, inspect last_error for rate limiting and retry
+                last_error = getattr(run, 'last_error', None)
+                err_code = None
+                if isinstance(last_error, dict):
+                    err_code = last_error.get('code')
+
+                if err_code == 'rate_limit_exceeded' and attempt < max_retries:
+                    print(f"Run failed due to rate limit, retrying in {backoff} seconds...")
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+
                 print(f"Run failed: {run.last_error}")
                 raise Exception(f"Analysis failed: {run.last_error}")
             
@@ -338,9 +357,8 @@ def run_market_analysis(symbol: str) -> MarketAnalysis:
             analysis=f"Market analysis for {symbol} is currently unavailable due to technical issues: {str(e)}. Please try again later.",
             technical_indicators={},
             sector_analysis="Analysis unavailable",
-            competitive_position="Analysis unavailable", 
+            competitive_position="Analysis unavailable",
             market_outlook="Analysis unavailable",
-            generated_at=datetime.now().isoformat()
         )
     
     finally:

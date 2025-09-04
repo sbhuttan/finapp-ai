@@ -286,23 +286,26 @@ def parse_risk_analysis(analysis_text: str, symbol: str) -> RiskAnalysis:
             risk_summary=analysis_text
         )
 
+def score_to_rating(score: float) -> str:
+    """Convert numerical score to risk rating"""
+    if score <= 2.0:
+        return "Very Low"
+    elif score <= 4.0:
+        return "Low"
+    elif score <= 6.0:
+        return "Medium"
+    elif score <= 8.0:
+        return "High"
+    else:
+        return "Very High"
+
 def extract_risk_rating(text: str) -> str:
-    """Extract overall risk rating classification"""
-    risk_patterns = [
-        (r"very high risk", "Very High"),
-        (r"high risk", "High"),
-        (r"medium risk", "Medium"),
-        (r"moderate risk", "Medium"),
-        (r"low risk", "Low"),
-        (r"very low risk", "Very Low")
-    ]
+    """Extract overall risk rating classification based on numerical score"""
+    # First try to get the numerical score
+    risk_score = extract_risk_score(text)
     
-    text_lower = text.lower()
-    for pattern, rating in risk_patterns:
-        if re.search(pattern, text_lower):
-            return rating
-    
-    return "Medium"
+    # Map score to rating based on the 1-10 scale (1=Very Low, 10=Very High)
+    return score_to_rating(risk_score)
 
 def extract_risk_score(text: str) -> float:
     """Extract numerical risk score"""
@@ -330,9 +333,13 @@ def extract_risk_section(text: str, section_name: str) -> Dict:
     """Extract risk information for a specific section"""
     section_text = extract_section(text, section_name, "")
     
+    # Get the score first, then derive rating from it
+    section_score = extract_risk_score(section_text)
+    section_rating = score_to_rating(section_score)
+    
     risk_info = {
-        "rating": extract_risk_rating(section_text),
-        "score": extract_risk_score(section_text),
+        "rating": section_rating,
+        "score": section_score,
         "summary": section_text[:500] if section_text else "",
         "key_risks": extract_key_risks_from_section(section_text)
     }
