@@ -11,9 +11,9 @@ import os
 # Add the parent directory to the path so we can import our agents
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from agents.market_analysis_agent import get_market_analysis_async
-from agents.sentiment_analysis_agent import get_sentiment_analysis_async  
-from agents.risk_analysis_agent import get_risk_analysis_async
+from agents.market_analysis_agent_projects import get_market_analysis_async
+from agents.sentiment_analysis_agent_projects import get_sentiment_analysis_async  
+from agents.risk_analysis_agent_projects import get_risk_analysis_async
 
 async def test_single_agent(agent_func, agent_name, symbol):
     """Test a single agent"""
