@@ -19,6 +19,9 @@ from agents.market_analysis_agent_projects import get_market_analysis_async, cle
 from agents.sentiment_analysis_agent_projects import get_sentiment_analysis_async, cleanup_sentiment_analysis_agent
 from agents.risk_analysis_agent_projects import get_risk_analysis_async, cleanup_risk_analysis_agent
 
+# Import Finnhub utilities
+from utils.finnhub_client import get_stock_overview as finnhub_get_stock_overview, get_stock_quote, search_stocks
+
 app = FastAPI(title="Market Analysis AI - Python Backend", version="1.0.0")
 
 # Add CORS middleware to allow frontend connections
@@ -343,23 +346,126 @@ async def get_top_movers():
         print("🔄 Falling back to mock data")
         return generate_mock_movers()
 
+@app.get("/api/finnhub/stock/overview/{symbol}")
+async def get_finnhub_stock_overview(symbol: str):
+    """
+    Get comprehensive stock overview from Finnhub API
+    """
+    try:
+        print(f"📊 Getting Finnhub stock overview for {symbol}...")
+        overview = finnhub_get_stock_overview(symbol.upper())
+        
+        if overview.get('error'):
+            raise HTTPException(status_code=400, detail=overview['error'])
+        
+        print(f"✅ Retrieved Finnhub overview for {symbol}")
+        return overview
+        
+    except Exception as e:
+        print(f"❌ Error getting Finnhub overview for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get stock overview: {str(e)}")
+
+@app.get("/api/finnhub/stock/quote/{symbol}")
+async def get_finnhub_stock_quote(symbol: str):
+    """
+    Get real-time stock quote from Finnhub API
+    """
+    try:
+        print(f"💹 Getting Finnhub quote for {symbol}...")
+        quote = get_stock_quote(symbol.upper())
+        
+        if not quote:
+            raise HTTPException(status_code=404, detail=f"No quote data found for {symbol}")
+        
+        print(f"✅ Retrieved Finnhub quote for {symbol}")
+        return {
+            "symbol": symbol.upper(),
+            "quote": quote,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting Finnhub quote for {symbol}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get stock quote: {str(e)}")
+
+@app.get("/api/finnhub/search")
+async def search_finnhub_stocks(q: str = Query(..., description="Search query")):
+    """
+    Search for stocks using Finnhub API
+    """
+    try:
+        print(f"🔍 Searching Finnhub for: {q}")
+        results = search_stocks(q)
+        
+        print(f"✅ Found {len(results.get('result', []))} results for '{q}'")
+        return results
+        
+    except Exception as e:
+        print(f"❌ Error searching Finnhub for {q}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to search stocks: {str(e)}")
+
 @app.get("/api/stock/overview")
 async def get_stock_overview(
     symbol: str = Query(..., description="Stock symbol"),
     range: str = Query("6M", description="Time range")
 ):
     """
-    Stock overview endpoint - placeholder for now.
-    You can implement this with your preferred data provider.
+    Enhanced stock overview endpoint using Finnhub data
     """
-    # For now, return mock data
-    return {
-        "symbol": symbol,
-        "currentPrice": 150.00,
-        "change": 2.50,
-        "changePercent": 1.69,
-        "message": "This is mock data - implement with your data provider"
-    }
+    try:
+        print(f"📊 Getting enhanced stock overview for {symbol}...")
+        
+        # Get data from Finnhub
+        finnhub_data = finnhub_get_stock_overview(symbol.upper())
+        
+        if finnhub_data.get('error'):
+            raise HTTPException(status_code=400, detail=finnhub_data['error'])
+        
+        # Transform Finnhub data to match frontend expectations
+        quote = finnhub_data.get('quote', {})
+        profile = finnhub_data.get('profile', {})
+        
+        overview = {
+            "symbol": symbol.upper(),
+            "quote": {
+                "currentPrice": quote.get('c', 0),  # Current price
+                "change": quote.get('d', 0),        # Change
+                "changePercent": quote.get('dp', 0), # Change percent
+                "high": quote.get('h', 0),          # High price of the day
+                "low": quote.get('l', 0),           # Low price of the day
+                "open": quote.get('o', 0),          # Open price of the day
+                "previousClose": quote.get('pc', 0), # Previous close price
+                "timestamp": quote.get('t', 0)      # Timestamp
+            },
+            "profile": profile,
+            "financials": finnhub_data.get('financials', {}),
+            "news": finnhub_data.get('news', []),
+            "earnings": finnhub_data.get('earnings', []),
+            "history": finnhub_data.get('history', {}),
+            "last_updated": finnhub_data.get('last_updated')
+        }
+        
+        print(f"✅ Retrieved enhanced overview for {symbol}")
+        return overview
+        
+    except Exception as e:
+        print(f"❌ Error getting enhanced overview for {symbol}: {str(e)}")
+        # Fallback to mock data
+        return {
+            "symbol": symbol.upper(),
+            "quote": {
+                "currentPrice": 150.00,
+                "change": 2.50,
+                "changePercent": 1.69,
+                "high": 152.00,
+                "low": 148.00,
+                "open": 149.00,
+                "previousClose": 147.50,
+                "timestamp": int(datetime.now().timestamp())
+            },
+            "profile": {"name": f"{symbol.upper()} Inc.", "exchange": "NASDAQ"},
+            "message": f"Using mock data due to error: {str(e)}"
+        }
 
 @app.get("/api/earnings")
 async def get_earnings():

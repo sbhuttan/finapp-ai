@@ -427,3 +427,135 @@ export async function searchSymbols(q: string, limit = 10): Promise<SymbolHit[]>
     return []
   }
 }
+
+// ===== FINNHUB API FUNCTIONS =====
+
+/**
+ * Get stock overview using Finnhub API via backend
+ */
+export async function getStockOverviewFinnhub(symbol: string, range: PriceRange = '6M'): Promise<StockOverview> {
+  try {
+    const response = await axios.get(`${BACKEND_CONFIG.pythonUrl}/api/finnhub/stock/overview/${symbol}`)
+    const data = response.data
+
+    // Transform Finnhub data to match our interface
+    const quote: Quote = {
+      symbol: data.symbol,
+      name: data.profile?.name || `${data.symbol} Inc.`,
+      price: data.quote?.c || 0,
+      change: data.quote?.d || 0,
+      changePercent: data.quote?.dp || 0,
+      currency: 'USD',
+      marketCap: data.profile?.marketCapitalization || null,
+      peRatio: data.financials?.metric?.peBasicExclExtraTTM || null,
+      epsTTM: data.financials?.metric?.epsTTM || null,
+      dividendYield: data.financials?.metric?.dividendYield || null,
+      week52High: data.financials?.metric?.['52WeekHigh'] || null,
+      week52Low: data.financials?.metric?.['52WeekLow'] || null,
+      lastUpdated: Date.now()
+    }
+
+    // Transform historical data
+    const history: Candle[] = []
+    if (data.history && data.history.c && data.history.t) {
+      for (let i = 0; i < data.history.c.length; i++) {
+        history.push({
+          t: data.history.t[i] * 1000, // Convert to milliseconds
+          o: data.history.o[i] || 0,
+          h: data.history.h[i] || 0,
+          l: data.history.l[i] || 0,
+          c: data.history.c[i] || 0,
+          v: data.history.v[i] || 0
+        })
+      }
+    }
+
+    // Transform news data
+    const news: NewsItem[] = (data.news || []).map((item: any, index: number) => ({
+      id: `${symbol}_${index}`,
+      source: item.source || 'Unknown',
+      headline: item.headline || 'No headline',
+      url: item.url || '',
+      publishedAt: new Date(item.datetime * 1000).toISOString(),
+      summary: item.summary || null
+    }))
+
+    // Transform earnings data
+    const earnings: EarningsQuarter[] = (data.earnings || []).map((item: any) => ({
+      fiscalPeriod: item.period || '',
+      date: item.date || null,
+      epsEstimate: item.epsEstimate || null,
+      epsActual: item.epsActual || null
+    }))
+
+    return {
+      quote,
+      history,
+      earnings,
+      news
+    }
+
+  } catch (error) {
+    console.error('Error fetching Finnhub stock overview:', error)
+    // Fallback to mock data
+    return getStockOverview(symbol, range)
+  }
+}
+
+/**
+ * Get real-time stock quote using Finnhub API
+ */
+export async function getStockQuoteFinnhub(symbol: string): Promise<Quote> {
+  try {
+    const response = await axios.get(`${BACKEND_CONFIG.pythonUrl}/api/finnhub/stock/quote/${symbol}`)
+    const data = response.data
+
+    return {
+      symbol: data.symbol,
+      name: `${data.symbol} Inc.`, // Would need company profile for actual name
+      price: data.quote?.c || 0,
+      change: data.quote?.d || 0,
+      changePercent: data.quote?.dp || 0,
+      currency: 'USD',
+      marketCap: null,
+      peRatio: null,
+      epsTTM: null,
+      dividendYield: null,
+      week52High: data.quote?.h || null,
+      week52Low: data.quote?.l || null,
+      lastUpdated: Date.now()
+    }
+
+  } catch (error) {
+    console.error('Error fetching Finnhub quote:', error)
+    // Fallback to mock data
+    return generateMockQuote(symbol)
+  }
+}
+
+/**
+ * Search stocks using Finnhub API
+ */
+export async function searchStocksFinnhub(q: string, limit = 10): Promise<SymbolHit[]> {
+  try {
+    const response = await axios.get(`${BACKEND_CONFIG.pythonUrl}/api/finnhub/search`, {
+      params: { q }
+    })
+    const data = response.data
+
+    if (data.result) {
+      return data.result.slice(0, limit).map((item: any) => ({
+        symbol: item.symbol,
+        name: item.description || item.symbol,
+        exchange: item.displaySymbol || undefined
+      }))
+    }
+
+    return []
+
+  } catch (error) {
+    console.error('Error searching Finnhub stocks:', error)
+    // Fallback to mock search
+    return searchSymbols(q, limit)
+  }
+}

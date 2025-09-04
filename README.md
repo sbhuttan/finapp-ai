@@ -14,13 +14,21 @@ A Next.js application that provides financial market analysis, stock information
 ## Screenshots
 
 ### Deeper Analysis Feature
-![Deeper Analysis](./images/deeper-analysis.jpg)
 
 *The Deeper Analysis feature provides comprehensive AI-powered analysis including Market Analysis, Sentiment Analysis, and Risk Analysis for any stock.*
 
-## Documentation
-
 - 📋 **[Deeper Analysis Feature Guide](./DEEPER_ANALYSIS_README.md)** - Complete documentation for the AI-powered analysis features
+
+## Screenshots
+
+#### Heat Map
+![Heat Map](./images/heat-map.jpg)
+
+#### Stock Analysis
+![Stock Analysis](./images/stock-analysis.jpg)
+
+#### Deeper Analysis
+![Deeper Analysis](./images/deeper-analysis.jpg)
 
 ## Setup
 

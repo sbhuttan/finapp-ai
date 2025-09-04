@@ -3,7 +3,7 @@ import type { GetServerSideProps, NextPage } from 'next'
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
 import Link from 'next/link'
-import { getStockOverview, getStockNews, PriceRange, StockOverview, NewsItem } from '../../lib/stocks'
+import { getStockOverview, getStockOverviewFinnhub, getStockNews, PriceRange, StockOverview, NewsItem } from '../../lib/stocks'
 import { useSettings } from '../../lib/settings'
 import StockHeader from '../../components/StockHeader'
 import PriceRangeToggle from '../../components/PriceRangeToggle'
@@ -122,9 +122,18 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
   const symbol = symbolRaw.toUpperCase()
   const range: PriceRange = '6M'
   try {
-    const overview = await getStockOverview(symbol, range)
+    // Try to use Finnhub data first, fallback to mock data if it fails
+    let overview: StockOverview
+    try {
+      overview = await getStockOverviewFinnhub(symbol, range)
+      console.log(`✅ Loaded Finnhub data for ${symbol}`)
+    } catch (finnhubError) {
+      console.warn(`⚠️ Finnhub failed for ${symbol}, falling back to mock data:`, finnhubError)
+      overview = await getStockOverview(symbol, range)
+    }
     return { props: { initial: overview, initialRange: range, symbol } }
   } catch (err) {
+    console.error(`❌ Failed to load data for ${symbol}:`, err)
     return { notFound: true }
   }
 }
