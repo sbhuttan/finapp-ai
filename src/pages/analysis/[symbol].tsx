@@ -3,6 +3,7 @@ import type { GetServerSideProps, NextPage } from 'next'
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
 import { useRouter } from 'next/router'
+import MarkdownRenderer from '../../components/MarkdownRenderer'
 
 interface TechnicalIndicators {
   RSI?: number
@@ -272,34 +273,38 @@ const DeeperAnalysisPage: NextPage<Props> = ({ symbol }) => {
               {/* Market Outlook */}
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold mb-4">Market Outlook</h3>
-                <div className="text-gray-700 whitespace-pre-line">
-                  {marketAnalysis.market_outlook || 'No specific outlook data available.'}
-                </div>
+                <MarkdownRenderer 
+                  content={marketAnalysis.market_outlook || 'No specific outlook data available.'} 
+                  className="text-sm"
+                />
               </div>
             </div>
 
             {/* Sector Analysis */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold mb-4">Sector Analysis</h3>
-              <div className="text-gray-700 whitespace-pre-line">
-                {marketAnalysis.sector_analysis || 'No specific sector analysis available.'}
-              </div>
+              <MarkdownRenderer 
+                content={marketAnalysis.sector_analysis || 'No specific sector analysis available.'} 
+                className="text-sm"
+              />
             </div>
 
             {/* Competitive Position */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold mb-4">Competitive Position</h3>
-              <div className="text-gray-700 whitespace-pre-line">
-                {marketAnalysis.competitive_position || 'No competitive position data available.'}
-              </div>
+              <MarkdownRenderer 
+                content={marketAnalysis.competitive_position || 'No competitive position data available.'} 
+                className="text-sm"
+              />
             </div>
 
             {/* Full Analysis */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold mb-4">Complete Market Analysis</h3>
-              <div className="text-gray-700 whitespace-pre-line text-sm">
-                {marketAnalysis.analysis}
-              </div>
+              <MarkdownRenderer 
+                content={marketAnalysis.analysis} 
+                className="text-sm"
+              />
             </div>
           </div>
         )}
@@ -362,9 +367,10 @@ const DeeperAnalysisPage: NextPage<Props> = ({ symbol }) => {
             {/* Sentiment Summary */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold mb-4">Sentiment Summary</h3>
-              <div className="text-gray-700 whitespace-pre-line text-sm">
-                {sentimentAnalysis.sentiment_summary}
-              </div>
+              <MarkdownRenderer 
+                content={sentimentAnalysis.sentiment_summary} 
+                className="text-sm"
+              />
             </div>
           </div>
         )}
@@ -451,9 +457,10 @@ const DeeperAnalysisPage: NextPage<Props> = ({ symbol }) => {
             {/* Risk Summary */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold mb-4">Risk Analysis Summary</h3>
-              <div className="text-gray-700 whitespace-pre-line text-sm">
-                {riskAnalysis.risk_summary}
-              </div>
+              <MarkdownRenderer 
+                content={riskAnalysis.risk_summary} 
+                className="text-sm"
+              />
             </div>
           </div>
         )}

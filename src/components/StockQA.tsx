@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import MarkdownRenderer from './MarkdownRenderer'
 
 interface Props { symbol: string; range: string }
 
@@ -33,7 +34,7 @@ export default function StockQA({ symbol, range }: Props) {
       </div>
       <div className="mt-4">
         {error && <div className="text-sm text-red-600">{error}</div>}
-        {answer && <div className="prose max-w-none text-sm whitespace-pre-wrap">{answer}</div>}
+        {answer && <MarkdownRenderer content={answer} className="text-sm" />}
       </div>
     </div>
   )
