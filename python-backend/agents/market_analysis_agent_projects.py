@@ -1,7 +1,7 @@
 """
-Market Analysis Agent using Azure AI Projects
+Market Analysis Agent using Azure AI Projects with Bing Grounding Tool
 Provides comprehensive market analysis for stocks including technical analysis,
-market trends, sector analysis, and competitive positioning.
+market trends, sector analysis, and competitive positioning using real-time data.
 """
 
 import os
@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from azure.ai.projects import AIProjectClient
+from azure.ai.agents.models import MessageRole, BingGroundingTool
 from azure.identity import DefaultAzureCredential
 
 # Thread pool executor for async operations
@@ -43,9 +44,9 @@ class MarketAnalysis:
 _market_analysis_agent = None
 _agents_client = None
 
-def get_or_create_market_analysis_agent(project_client, model_deployment: str):
+def get_or_create_market_analysis_agent(project_client, model_deployment: str, bing_connection: str):
     """
-    Get existing MarketAnalysisAgent or create it if it doesn't exist.
+    Get existing MarketAnalysisAgent with Bing Grounding or create it if it doesn't exist.
     This function maintains a persistent agent to avoid recreation overhead.
     """
     global _market_analysis_agent, _agents_client
@@ -80,13 +81,22 @@ def get_or_create_market_analysis_agent(project_client, model_deployment: str):
         except Exception as e:
             print(f"⚠️  Error listing agents: {e}, will create new agent")
         
-        # Create new persistent agent
-        print("🆕 Creating new MarketAnalysisAgent...")
+        # Get Bing connection ID
+        conn_id = project_client.connections.get(bing_connection).id
+        print(f"✅ Using Bing connection ID: {conn_id}")
+        
+        # Initialize Bing grounding tool
+        bing_tool = BingGroundingTool(connection_id=conn_id)
+        
+        # Create new persistent agent with Bing Grounding
+        print("🆕 Creating new MarketAnalysisAgent with Bing Grounding...")
         agent = agents_client.create_agent(
             model=model_deployment,
             name="MarketAnalysisAgent",
-            instructions="""You are an expert financial market analyst specializing in comprehensive stock analysis.
-            You provide detailed technical analysis, sector insights, competitive positioning, and market outlook.
+            instructions="""You are an expert financial market analyst specializing in comprehensive stock analysis with access to real-time web data.
+            You provide detailed technical analysis, sector insights, competitive positioning, and market outlook using current market information.
+            
+            Use the web search tool to gather the most current market data before providing your analysis.
             
             CRITICAL FORMATTING REQUIREMENTS - You MUST include these exact phrases in your Technical Analysis section:
 
@@ -100,7 +110,7 @@ def get_or_create_market_analysis_agent(project_client, model_deployment: str):
 
             ALWAYS include ALL six technical indicators using the exact phrases above. This format is required for data extraction.
             
-            Structure your analysis with clear sections and include actionable insights with specific data points.
+            Structure your analysis with clear sections and include actionable insights with specific data points from current market sources.
             
             Example technical section format:
             "Technical Analysis shows:
@@ -111,10 +121,10 @@ def get_or_create_market_analysis_agent(project_client, model_deployment: str):
             - 50-day moving average: $152.35 trending upward
             - 200-day moving average: $148.90 providing long-term support"
             """,
-            tools=[],  # No special tools needed for this analysis
+            tools=bing_tool.definitions,
         )
         
-        print(f"✅ MarketAnalysisAgent created: {agent.id}")
+        print(f"✅ MarketAnalysisAgent created with Bing Grounding: {agent.id}")
         
         # Cache the agent for future use
         _market_analysis_agent = agent
@@ -127,68 +137,101 @@ def get_or_create_market_analysis_agent(project_client, model_deployment: str):
         raise
 
 def get_required_env_vars():
-    """Get required environment variables for Azure AI Projects"""
-    project_endpoint = os.getenv("PROJECT_ENDPOINT")
-    model_deployment = os.getenv("MODEL_DEPLOYMENT_NAME")
+    """Get required environment variables for Azure AI Projects with Bing Grounding"""
+    project_endpoint = os.getenv("PROJECT_ENDPOINT") or os.getenv("AZURE_AI_FOUNDRY_ENDPOINT")
+    model_deployment = os.getenv("MODEL_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT") or "gpt-4o-mini"
+    bing_connection = os.getenv("BING_CONNECTION_NAME") or os.getenv("BING_GROUNDING_CONNECTION_ID")
+    
+    # Additional parameters that might be needed for newer SDK versions
+    subscription_id = os.getenv("AZURE_SUBSCRIPTION_ID")
+    resource_group = os.getenv("AZURE_RESOURCE_GROUP")
+    project_name = os.getenv("AZURE_AI_PROJECT_NAME")
     
     if not project_endpoint:
         raise ValueError("PROJECT_ENDPOINT environment variable is required")
     if not model_deployment:
         raise ValueError("MODEL_DEPLOYMENT_NAME environment variable is required")
+    if not bing_connection:
+        raise ValueError("BING_CONNECTION_NAME environment variable is required for real-time data")
     
-    return project_endpoint, model_deployment
+    return project_endpoint, model_deployment, bing_connection, subscription_id, resource_group, project_name
+
+def create_ai_project_client(project_endpoint: str, subscription_id: str = None, resource_group: str = None, project_name: str = None):
+    """Create AI Project Client with fallback handling"""
+    try:
+        credential = DefaultAzureCredential()
+        
+        return AIProjectClient(
+            endpoint=project_endpoint,
+            credential=credential,
+        )
+    except Exception as e:
+        print(f"❌ Failed to initialize AIProjectClient: {e}")
+        raise
 
 def create_market_analysis_prompt(symbol: str) -> str:
-    """Create a specialized prompt for market analysis"""
+    """Create a specialized prompt for market analysis with real-time data"""
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=7)
+    
     return f"""You are an expert financial market analyst with deep expertise in technical analysis, 
-sector analysis, and market trends. Your task is to provide a comprehensive market analysis for {symbol}.
+sector analysis, and market trends. Your task is to provide a comprehensive market analysis for {symbol} 
+using the most current and real-time market data available.
 
-Please conduct a thorough analysis covering:
+**FIRST: Use the web search tool to gather current market data for {symbol}:**
+- Search for: "{symbol} stock price technical analysis current" 
+- Search for: "{symbol} RSI MACD moving averages support resistance"
+- Search for: "{symbol} sector analysis market trends latest news"
+- Search for: "{symbol} competitors market share analysis"
 
-1. **Technical Analysis**:
-   - Current price trends and momentum
-   - Key support and resistance levels (provide specific price levels)
-   - Moving averages: 50-day MA and 200-day MA (provide current values)
-   - Volume analysis and patterns
-   - Technical indicators with specific values:
-     * RSI: [provide current RSI value]
-     * MACD: [provide current MACD value]
-     * Bollinger Bands position
-   - Chart patterns and technical signals
+Focus on data from the last 7 days ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}) from reliable financial sources like MarketWatch, Yahoo Finance, Bloomberg, CNBC, TradingView, etc.
 
-2. **Sector Analysis**:
-   - Current sector performance and trends
-   - How {symbol} compares to sector peers
-   - Sector-specific catalysts and headwinds
-   - Market share and competitive positioning
+Then conduct a thorough analysis covering:
 
-3. **Market Context**:
-   - Overall market conditions and sentiment
-   - Economic factors affecting the stock/sector
-   - Institutional holdings and analyst sentiment
-   - Recent earnings performance vs expectations
+1. **Real-Time Technical Analysis**:
+   - Current stock price and recent price trends
+   - Key support and resistance levels (provide specific price levels from recent data)
+   - Moving averages: 50-day MA and 200-day MA (find current values)
+   - Volume analysis and recent trading patterns
+   - Technical indicators with current values:
+     * RSI: [find current RSI value from financial sites]
+     * MACD: [find current MACD value from financial sites]
+     * Bollinger Bands position relative to current price
+   - Recent chart patterns and technical signals
+
+2. **Current Sector Analysis**:
+   - Real-time sector performance and recent trends
+   - How {symbol} compares to sector peers today
+   - Recent sector-specific news, catalysts and headwinds
+   - Current market share and competitive positioning
+
+3. **Current Market Context**:
+   - Today's market conditions and sentiment
+   - Recent economic factors affecting the stock/sector
+   - Latest institutional activity and analyst updates
+   - Most recent earnings performance and guidance
 
 4. **Competitive Analysis**:
-   - Key competitors and market positioning
-   - Competitive advantages/disadvantages
-   - Market share trends
-   - Innovation and product pipeline
+   - Key competitors and their recent performance
+   - Recent competitive advantages/developments
+   - Current market share trends and movements
+   - Latest innovation and product pipeline updates
 
-5. **Market Outlook**:
-   - Short-term (1-3 months) outlook
+5. **Forward-Looking Market Outlook**:
+   - Short-term (1-3 months) outlook based on current data
    - Medium-term (6-12 months) outlook
-   - Key catalysts to watch
-   - Potential risks and opportunities
+   - Upcoming catalysts and earnings dates
+   - Current risks and emerging opportunities
 
-CRITICAL FORMATTING REQUIREMENTS - You MUST include these exact phrases in your response:
+CRITICAL FORMATTING REQUIREMENTS - You MUST include these exact phrases with real data:
 
-Technical Indicators (use exact format):
-- RSI: [provide number between 0-100, e.g., "RSI: 65.2"]
-- MACD: [provide numerical value, e.g., "MACD: -1.23"]
-- Support Level: $[provide exact price, e.g., "Support Level: $150.50"]
-- Resistance Level: $[provide exact price, e.g., "Resistance Level: $175.25"]
-- 50-day MA: $[provide exact price, e.g., "50-day moving average: $162.45"]
-- 200-day MA: $[provide exact price, e.g., "200-day moving average: $158.90"]
+Technical Indicators (use exact format with real values):
+- RSI: [provide current number between 0-100, e.g., "RSI: 65.2"]
+- MACD: [provide current numerical value, e.g., "MACD: -1.23"]
+- Support Level: $[provide current price, e.g., "Support Level: $150.50"]
+- Resistance Level: $[provide current price, e.g., "Resistance Level: $175.25"]
+- 50-day MA: $[provide current price, e.g., "50-day moving average: $162.45"]
+- 200-day MA: $[provide current price, e.g., "200-day moving average: $158.90"]
 
 EXAMPLE FORMAT for technical section:
 "Based on technical analysis, {symbol} shows the following key levels:
@@ -209,24 +252,32 @@ where possible and provide reasoning for your assessments.
 """
 
 def run_market_analysis(symbol: str) -> MarketAnalysis:
-    """Run market analysis for a given stock symbol"""
+    """Run market analysis for a given stock symbol using real-time data"""
     project_client = None
     
     try:
-        project_endpoint, model_deployment = get_required_env_vars()
+        project_endpoint, model_deployment, bing_connection, subscription_id, resource_group, project_name = get_required_env_vars()
         
-        # Create Azure AI Project client
-        project_client = AIProjectClient(
-            endpoint=project_endpoint,
-            credential=DefaultAzureCredential(),
+        print(f"🚀 Using Azure AI Projects with Bing grounding for real-time market data")
+        print(f"📍 Endpoint: {project_endpoint}")
+        print(f"🤖 Model: {model_deployment}")
+        print(f"🔍 Bing Connection: {bing_connection}")
+        
+        # Create Azure AI Project client with fallback handling
+        project_client = create_ai_project_client(
+            project_endpoint, 
+            subscription_id, 
+            resource_group, 
+            project_name
         )
         
         print(f"✅ Azure AI Project client initialized successfully")
         
-        # Get or create the persistent MarketAnalysisAgent
+        # Get or create the persistent MarketAnalysisAgent with Bing Grounding
         agent, agents_client = get_or_create_market_analysis_agent(
             project_client, 
-            model_deployment
+            model_deployment,
+            bing_connection
         )
         
         try:
