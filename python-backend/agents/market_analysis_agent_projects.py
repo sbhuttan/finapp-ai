@@ -39,6 +39,93 @@ class MarketAnalysis:
             "generated_at": self.generated_at
         }
 
+# Global agent cache to persist the MarketAnalysisAgent
+_market_analysis_agent = None
+_agents_client = None
+
+def get_or_create_market_analysis_agent(project_client, model_deployment: str):
+    """
+    Get existing MarketAnalysisAgent or create it if it doesn't exist.
+    This function maintains a persistent agent to avoid recreation overhead.
+    """
+    global _market_analysis_agent, _agents_client
+    
+    try:
+        agents_client = project_client.agents
+        
+        # If we have a cached agent, verify it still exists
+        if _market_analysis_agent and _agents_client:
+            try:
+                # Try to retrieve the agent to verify it still exists
+                existing_agent = agents_client.get_agent(_market_analysis_agent.id)
+                if existing_agent and existing_agent.name == "MarketAnalysisAgent":
+                    print(f"♻️  Reusing existing MarketAnalysisAgent: {existing_agent.id}")
+                    return existing_agent, agents_client
+                else:
+                    print("🔄 Cached agent no longer exists, will create new one")
+                    _market_analysis_agent = None
+            except Exception as e:
+                print(f"⚠️  Cached agent validation failed: {e}, will create new one")
+                _market_analysis_agent = None
+        
+        # Check if MarketAnalysisAgent already exists by listing agents
+        try:
+            agents_list = agents_client.list_agents()
+            for agent in agents_list:
+                if agent.name == "MarketAnalysisAgent":
+                    print(f"♻️  Found existing MarketAnalysisAgent: {agent.id}")
+                    _market_analysis_agent = agent
+                    _agents_client = agents_client
+                    return agent, agents_client
+        except Exception as e:
+            print(f"⚠️  Error listing agents: {e}, will create new agent")
+        
+        # Create new persistent agent
+        print("🆕 Creating new MarketAnalysisAgent...")
+        agent = agents_client.create_agent(
+            model=model_deployment,
+            name="MarketAnalysisAgent",
+            instructions="""You are an expert financial market analyst specializing in comprehensive stock analysis.
+            You provide detailed technical analysis, sector insights, competitive positioning, and market outlook.
+            
+            CRITICAL FORMATTING REQUIREMENTS - You MUST include these exact phrases in your Technical Analysis section:
+
+            Technical Indicators (use exact format with colons):
+            - "RSI: [number]" (e.g., "RSI: 65.2")
+            - "MACD: [number]" (e.g., "MACD: -1.23") 
+            - "Support Level: $[price]" (e.g., "Support Level: $150.50")
+            - "Resistance Level: $[price]" (e.g., "Resistance Level: $175.25")
+            - "50-day moving average: $[price]" (e.g., "50-day moving average: $162.45")
+            - "200-day moving average: $[price]" (e.g., "200-day moving average: $158.90")
+
+            ALWAYS include ALL six technical indicators using the exact phrases above. This format is required for data extraction.
+            
+            Structure your analysis with clear sections and include actionable insights with specific data points.
+            
+            Example technical section format:
+            "Technical Analysis shows:
+            - RSI: 67.5 indicating moderate momentum
+            - MACD: -0.45 showing bearish divergence  
+            - Support Level: $145.20 based on recent consolidation
+            - Resistance Level: $162.80 from previous highs
+            - 50-day moving average: $152.35 trending upward
+            - 200-day moving average: $148.90 providing long-term support"
+            """,
+            tools=[],  # No special tools needed for this analysis
+        )
+        
+        print(f"✅ MarketAnalysisAgent created: {agent.id}")
+        
+        # Cache the agent for future use
+        _market_analysis_agent = agent
+        _agents_client = agents_client
+        
+        return agent, agents_client
+        
+    except Exception as e:
+        print(f"❌ Error getting/creating MarketAnalysisAgent: {e}")
+        raise
+
 def get_required_env_vars():
     """Get required environment variables for Azure AI Projects"""
     project_endpoint = os.getenv("PROJECT_ENDPOINT")
@@ -124,8 +211,6 @@ where possible and provide reasoning for your assessments.
 def run_market_analysis(symbol: str) -> MarketAnalysis:
     """Run market analysis for a given stock symbol"""
     project_client = None
-    agents_client = None
-    agent = None
     
     try:
         project_endpoint, model_deployment = get_required_env_vars()
@@ -135,84 +220,64 @@ def run_market_analysis(symbol: str) -> MarketAnalysis:
             endpoint=project_endpoint,
             credential=DefaultAzureCredential(),
         )
-        agents_client = project_client.agents
         
         print(f"✅ Azure AI Project client initialized successfully")
         
-        # Create agent for market analysis
-        agent = agents_client.create_agent(
-            model=model_deployment,
-            name=f"market-analyst-{symbol}",
-            instructions="""You are an expert financial market analyst specializing in comprehensive stock analysis.
-            You provide detailed technical analysis, sector insights, competitive positioning, and market outlook.
-            
-            CRITICAL FORMATTING REQUIREMENTS - You MUST include these exact phrases in your Technical Analysis section:
-
-            Technical Indicators (use exact format with colons):
-            - "RSI: [number]" (e.g., "RSI: 65.2")
-            - "MACD: [number]" (e.g., "MACD: -1.23") 
-            - "Support Level: $[price]" (e.g., "Support Level: $150.50")
-            - "Resistance Level: $[price]" (e.g., "Resistance Level: $175.25")
-            - "50-day moving average: $[price]" (e.g., "50-day moving average: $162.45")
-            - "200-day moving average: $[price]" (e.g., "200-day moving average: $158.90")
-
-            ALWAYS include ALL six technical indicators using the exact phrases above. This format is required for data extraction.
-            
-            Structure your analysis with clear sections and include actionable insights with specific data points.
-            
-            Example technical section format:
-            "Technical Analysis shows:
-            - RSI: 67.5 indicating moderate momentum
-            - MACD: -0.45 showing bearish divergence  
-            - Support Level: $145.20 based on recent consolidation
-            - Resistance Level: $162.80 from previous highs
-            - 50-day moving average: $152.35 trending upward
-            - 200-day moving average: $148.90 providing long-term support"
-            """,
-            tools=[],  # No special tools needed for this analysis
+        # Get or create the persistent MarketAnalysisAgent
+        agent, agents_client = get_or_create_market_analysis_agent(
+            project_client, 
+            model_deployment
         )
         
-        print(f"Created market analysis agent, ID: {agent.id}")
-        
-        # Create thread for communication
-        thread = agents_client.threads.create()
-        print(f"Created thread, ID: {thread.id}")
-        
-        # Create the analysis prompt
-        prompt = create_market_analysis_prompt(symbol)
-        
-        # Create message to thread
-        message = agents_client.messages.create(
-            thread_id=thread.id,
-            role="user",
-            content=prompt,
-        )
-        print(f"Created message, ID: {message.id}")
-        
-        # Create and process agent run
-        run = agents_client.runs.create_and_process(
-            thread_id=thread.id, 
-            agent_id=agent.id
-        )
-        print(f"Market analysis run finished with status: {run.status}")
-        
-        if run.status == "failed":
-            print(f"Run failed: {run.last_error}")
-            raise Exception(f"Analysis failed: {run.last_error}")
-        
-        # Get the analysis result
-        messages = agents_client.messages.list(thread_id=thread.id)
-        analysis_text = ""
-        
-        for msg in messages:
-            if msg.role == "assistant" and msg.text_messages:
-                analysis_text = msg.text_messages[-1].text.value
-                break
-        
-        # Parse the analysis into structured format
-        parsed_analysis = parse_market_analysis(analysis_text, symbol)
-        
-        return parsed_analysis
+        try:
+            # Create thread for communication
+            thread = agents_client.threads.create()
+            print(f"Created thread, ID: {thread.id}")
+            
+            # Create the analysis prompt
+            prompt = create_market_analysis_prompt(symbol)
+            
+            # Create message to thread
+            message = agents_client.messages.create(
+                thread_id=thread.id,
+                role="user",
+                content=prompt,
+            )
+            print(f"Created message, ID: {message.id}")
+            
+            # Create and process agent run
+            run = agents_client.runs.create_and_process(
+                thread_id=thread.id, 
+                agent_id=agent.id
+            )
+            print(f"Market analysis run finished with status: {run.status}")
+            
+            if run.status == "failed":
+                print(f"Run failed: {run.last_error}")
+                raise Exception(f"Analysis failed: {run.last_error}")
+            
+            # Get the analysis result
+            messages = agents_client.messages.list(thread_id=thread.id)
+            analysis_text = ""
+            
+            for msg in messages:
+                if msg.role == "assistant" and msg.text_messages:
+                    analysis_text = msg.text_messages[-1].text.value
+                    break
+            
+            # Parse the analysis into structured format
+            parsed_analysis = parse_market_analysis(analysis_text, symbol)
+            
+            return parsed_analysis
+            
+        except Exception as thread_error:
+            print(f"❌ Error during agent execution: {thread_error}")
+            # If there's an error with the cached agent, invalidate it
+            if "agent" in str(thread_error).lower() or "not found" in str(thread_error).lower():
+                print("🔄 Invalidating cached agent due to error")
+                global _market_analysis_agent
+                _market_analysis_agent = None
+            raise
         
     except Exception as e:
         print(f"❌ Error running market analysis for {symbol}: {e}")
@@ -228,14 +293,7 @@ def run_market_analysis(symbol: str) -> MarketAnalysis:
         )
     
     finally:
-        # Clean up resources
-        try:
-            if agent and agents_client:
-                agents_client.delete_agent(agent.id)
-                print("Deleted market analysis agent")
-        except Exception as cleanup_error:
-            print(f"⚠️ Error cleaning up agent: {cleanup_error}")
-        
+        # Close project client but keep agent for reuse
         try:
             if project_client:
                 project_client.close()
@@ -439,11 +497,23 @@ async def get_market_analysis_async(symbol: str) -> MarketAnalysis:
     return await loop.run_in_executor(executor, run_market_analysis, symbol)
 
 def cleanup_market_analysis_agent():
-    """Clean up the market analysis agent resources"""
-    try:
+    """
+    Clean up the persistent MarketAnalysisAgent when application shuts down.
+    This is optional but good for resource management.
+    """
+    global _market_analysis_agent, _agents_client
+    
+    if _market_analysis_agent and _agents_client:
+        try:
+            _agents_client.delete_agent(_market_analysis_agent.id)
+            print(f"🗑️ MarketAnalysisAgent {_market_analysis_agent.id} deleted during cleanup")
+        except Exception as e:
+            print(f"⚠️ Failed to delete MarketAnalysisAgent during cleanup: {e}")
+        finally:
+            _market_analysis_agent = None
+            _agents_client = None
+    else:
         print("✅ Market Analysis Agent cleaned up")
-    except Exception as e:
-        print(f"⚠️ Error cleaning up Market Analysis Agent: {e}")
 
 # For testing
 if __name__ == "__main__":

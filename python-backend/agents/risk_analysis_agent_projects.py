@@ -17,6 +17,10 @@ from azure.identity import DefaultAzureCredential
 # Thread pool executor for async operations
 executor = ThreadPoolExecutor(max_workers=4)
 
+# Global cache for persistent risk analysis agent
+_risk_analysis_agent = None
+_agents_client = None
+
 class RiskAnalysis:
     def __init__(self, symbol: str, overall_risk_rating: str, risk_score: float,
                  financial_risks: Dict, market_risks: Dict, operational_risks: Dict,
@@ -116,37 +120,66 @@ Focus on both quantitative and qualitative risk factors.
 Use a 1-10 risk scale where 1=Very Low Risk and 10=Very High Risk.
 """
 
-def run_risk_analysis(symbol: str) -> RiskAnalysis:
-    """Run risk analysis for a given stock symbol"""
-    project_client = None
-    agents_client = None
-    agent = None
+def get_or_create_risk_analysis_agent():
+    """
+    Get or create a persistent RiskAnalysisAgent.
+    Reuses existing agent if available, creates new one if needed.
+    """
+    global _risk_analysis_agent, _agents_client
     
     try:
         project_endpoint, model_deployment = get_required_env_vars()
         
-        # Create Azure AI Project client
-        project_client = AIProjectClient(
-            endpoint=project_endpoint,
-            credential=DefaultAzureCredential(),
-        )
-        agents_client = project_client.agents
+        # Initialize clients if not available
+        if not _agents_client:
+            project_client = AIProjectClient(
+                endpoint=project_endpoint,
+                credential=DefaultAzureCredential(),
+            )
+            _agents_client = project_client.agents
+            print("✅ Azure AI Project client initialized for RiskAnalysisAgent")
         
-        print(f"✅ Azure AI Project client initialized successfully")
+        # Check if agent exists and is valid
+        if _risk_analysis_agent:
+            try:
+                # Validate agent still exists
+                agent_info = _agents_client.get_agent(_risk_analysis_agent.id)
+                if agent_info and agent_info.id == _risk_analysis_agent.id:
+                    print(f"♻️ Reusing existing RiskAnalysisAgent: {_risk_analysis_agent.id}")
+                    return _risk_analysis_agent, _agents_client
+                else:
+                    print("⚠️ Cached RiskAnalysisAgent is invalid, creating new one")
+                    _risk_analysis_agent = None
+            except Exception as e:
+                print(f"⚠️ Error validating cached RiskAnalysisAgent: {e}")
+                _risk_analysis_agent = None
         
-        # Create agent for risk analysis
-        agent = agents_client.create_agent(
+        # Create new agent
+        _risk_analysis_agent = _agents_client.create_agent(
             model=model_deployment,
-            name=f"risk-analyst-{symbol}",
+            name="RiskAnalysisAgent",
             instructions="""You are an expert financial risk analyst specializing in comprehensive risk assessment.
-            You identify and assess financial risks, market risks, operational risks, and regulatory risks.
+            You analyze financial risks, market risks, operational risks, and regulatory risks for publicly traded companies.
             Always provide numerical risk scores and clear reasoning for your risk assessments.
             Present findings in a structured format with specific risk factors and mitigation strategies.
-            Use a 1-10 risk scale where 1=Very Low Risk and 10=Very High Risk for all assessments.""",
+            Use a 1-10 scale for all risk scores where 1=Very Low Risk and 10=Very High Risk.""",
             tools=[],  # No special tools needed for this analysis
         )
+        print(f"🆕 Created new RiskAnalysisAgent: {_risk_analysis_agent.id}")
         
-        print(f"Created risk analysis agent, ID: {agent.id}")
+        return _risk_analysis_agent, _agents_client
+        
+    except Exception as e:
+        print(f"❌ Error creating RiskAnalysisAgent: {e}")
+        raise
+
+def run_risk_analysis(symbol: str) -> RiskAnalysis:
+    """Run risk analysis for a given stock symbol using persistent agent"""
+    try:
+        # Get or create persistent agent
+        agent, agents_client = get_or_create_risk_analysis_agent()
+        
+        print(f"✅ Using RiskAnalysisAgent for {symbol} analysis")
         
         # Create thread for communication
         thread = agents_client.threads.create()
@@ -195,30 +228,14 @@ def run_risk_analysis(symbol: str) -> RiskAnalysis:
             symbol=symbol,
             overall_risk_rating="Medium",
             risk_score=5.0,
-            financial_risks={"rating": "Medium", "score": 5.0, "summary": "Analysis unavailable", "key_risks": []},
-            market_risks={"rating": "Medium", "score": 5.0, "summary": "Analysis unavailable", "key_risks": []},
-            operational_risks={"rating": "Medium", "score": 5.0, "summary": "Analysis unavailable", "key_risks": []},
-            regulatory_risks={"rating": "Medium", "score": 5.0, "summary": "Analysis unavailable", "key_risks": []},
+            financial_risks={"rating": "Medium", "score": 5.0, "summary": "Analysis unavailable"},
+            market_risks={"rating": "Medium", "score": 5.0, "summary": "Analysis unavailable"},
+            operational_risks={"rating": "Medium", "score": 5.0, "summary": "Analysis unavailable"},
+            regulatory_risks={"rating": "Medium", "score": 5.0, "summary": "Analysis unavailable"},
             risk_factors=[],
             risk_mitigation=[],
             risk_summary=f"Risk analysis for {symbol} is currently unavailable due to technical issues: {str(e)}. Please try again later."
         )
-    
-    finally:
-        # Clean up resources
-        try:
-            if agent and agents_client:
-                agents_client.delete_agent(agent.id)
-                print("Deleted risk analysis agent")
-        except Exception as cleanup_error:
-            print(f"⚠️ Error cleaning up agent: {cleanup_error}")
-        
-        try:
-            if project_client:
-                project_client.close()
-                print("Closed project client")
-        except Exception as cleanup_error:
-            print(f"⚠️ Error closing project client: {cleanup_error}")
 
 def parse_risk_analysis(analysis_text: str, symbol: str) -> RiskAnalysis:
     """Parse the risk analysis text into structured format"""
@@ -415,11 +432,23 @@ async def get_risk_analysis_async(symbol: str) -> RiskAnalysis:
     return await loop.run_in_executor(executor, run_risk_analysis, symbol)
 
 def cleanup_risk_analysis_agent():
-    """Clean up the risk analysis agent resources"""
-    try:
+    """
+    Clean up the persistent RiskAnalysisAgent when application shuts down.
+    This is optional but good for resource management.
+    """
+    global _risk_analysis_agent, _agents_client
+    
+    if _risk_analysis_agent and _agents_client:
+        try:
+            _agents_client.delete_agent(_risk_analysis_agent.id)
+            print(f"🗑️ RiskAnalysisAgent {_risk_analysis_agent.id} deleted during cleanup")
+        except Exception as e:
+            print(f"⚠️ Failed to delete RiskAnalysisAgent during cleanup: {e}")
+        finally:
+            _risk_analysis_agent = None
+            _agents_client = None
+    else:
         print("✅ Risk Analysis Agent cleaned up")
-    except Exception as e:
-        print(f"⚠️ Error cleaning up Risk Analysis Agent: {e}")
 
 # For testing
 if __name__ == "__main__":

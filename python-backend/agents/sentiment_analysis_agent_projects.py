@@ -17,6 +17,10 @@ from azure.identity import DefaultAzureCredential
 # Thread pool executor for async operations
 executor = ThreadPoolExecutor(max_workers=4)
 
+# Global cache for persistent sentiment analysis agent
+_sentiment_analysis_agent = None
+_agents_client = None
+
 class SentimentData:
     def __init__(self, sentiment: str, score: float, summary: str):
         self.sentiment = sentiment
@@ -119,28 +123,44 @@ Focus on recent developments and current market sentiment indicators.
 Use a 1-10 sentiment scale where 1=Very Bearish and 10=Very Bullish for all assessments.
 """
 
-def run_sentiment_analysis(symbol: str) -> SentimentAnalysis:
-    """Run sentiment analysis for a given stock symbol"""
-    project_client = None
-    agents_client = None
-    agent = None
+def get_or_create_sentiment_analysis_agent():
+    """
+    Get or create a persistent SentimentAnalysisAgent.
+    Reuses existing agent if available, creates new one if needed.
+    """
+    global _sentiment_analysis_agent, _agents_client
     
     try:
         project_endpoint, model_deployment = get_required_env_vars()
         
-        # Create Azure AI Project client
-        project_client = AIProjectClient(
-            endpoint=project_endpoint,
-            credential=DefaultAzureCredential(),
-        )
-        agents_client = project_client.agents
+        # Initialize clients if not available
+        if not _agents_client:
+            project_client = AIProjectClient(
+                endpoint=project_endpoint,
+                credential=DefaultAzureCredential(),
+            )
+            _agents_client = project_client.agents
+            print("✅ Azure AI Project client initialized for SentimentAnalysisAgent")
         
-        print(f"✅ Azure AI Project client initialized successfully")
+        # Check if agent exists and is valid
+        if _sentiment_analysis_agent:
+            try:
+                # Validate agent still exists
+                agent_info = _agents_client.get_agent(_sentiment_analysis_agent.id)
+                if agent_info and agent_info.id == _sentiment_analysis_agent.id:
+                    print(f"♻️ Reusing existing SentimentAnalysisAgent: {_sentiment_analysis_agent.id}")
+                    return _sentiment_analysis_agent, _agents_client
+                else:
+                    print("⚠️ Cached SentimentAnalysisAgent is invalid, creating new one")
+                    _sentiment_analysis_agent = None
+            except Exception as e:
+                print(f"⚠️ Error validating cached SentimentAnalysisAgent: {e}")
+                _sentiment_analysis_agent = None
         
-        # Create agent for sentiment analysis
-        agent = agents_client.create_agent(
+        # Create new agent
+        _sentiment_analysis_agent = _agents_client.create_agent(
             model=model_deployment,
-            name=f"sentiment-analyst-{symbol}",
+            name="SentimentAnalysisAgent",
             instructions="""You are an expert financial sentiment analyst specializing in comprehensive sentiment analysis.
             You analyze news sentiment, social media sentiment, analyst opinions, and market sentiment indicators.
             Always provide numerical sentiment scores and clear reasoning for your assessments.
@@ -148,8 +168,21 @@ def run_sentiment_analysis(symbol: str) -> SentimentAnalysis:
             Use a 1-10 scale for all sentiment scores where 1=Very Bearish and 10=Very Bullish.""",
             tools=[],  # No special tools needed for this analysis
         )
+        print(f"🆕 Created new SentimentAnalysisAgent: {_sentiment_analysis_agent.id}")
         
-        print(f"Created sentiment analysis agent, ID: {agent.id}")
+        return _sentiment_analysis_agent, _agents_client
+        
+    except Exception as e:
+        print(f"❌ Error creating SentimentAnalysisAgent: {e}")
+        raise
+
+def run_sentiment_analysis(symbol: str) -> SentimentAnalysis:
+    """Run sentiment analysis for a given stock symbol using persistent agent"""
+    try:
+        # Get or create persistent agent
+        agent, agents_client = get_or_create_sentiment_analysis_agent()
+        
+        print(f"✅ Using SentimentAnalysisAgent for {symbol} analysis")
         
         # Create thread for communication
         thread = agents_client.threads.create()
@@ -204,22 +237,6 @@ def run_sentiment_analysis(symbol: str) -> SentimentAnalysis:
             sentiment_drivers=[],
             sentiment_summary=f"Sentiment analysis for {symbol} is currently unavailable due to technical issues: {str(e)}. Please try again later."
         )
-    
-    finally:
-        # Clean up resources
-        try:
-            if agent and agents_client:
-                agents_client.delete_agent(agent.id)
-                print("Deleted sentiment analysis agent")
-        except Exception as cleanup_error:
-            print(f"⚠️ Error cleaning up agent: {cleanup_error}")
-        
-        try:
-            if project_client:
-                project_client.close()
-                print("Closed project client")
-        except Exception as cleanup_error:
-            print(f"⚠️ Error closing project client: {cleanup_error}")
 
 def parse_sentiment_analysis(analysis_text: str, symbol: str) -> SentimentAnalysis:
     """Parse the sentiment analysis text into structured format"""
@@ -365,11 +382,23 @@ async def get_sentiment_analysis_async(symbol: str) -> SentimentAnalysis:
     return await loop.run_in_executor(executor, run_sentiment_analysis, symbol)
 
 def cleanup_sentiment_analysis_agent():
-    """Clean up the sentiment analysis agent resources"""
-    try:
+    """
+    Clean up the persistent SentimentAnalysisAgent when application shuts down.
+    This is optional but good for resource management.
+    """
+    global _sentiment_analysis_agent, _agents_client
+    
+    if _sentiment_analysis_agent and _agents_client:
+        try:
+            _agents_client.delete_agent(_sentiment_analysis_agent.id)
+            print(f"🗑️ SentimentAnalysisAgent {_sentiment_analysis_agent.id} deleted during cleanup")
+        except Exception as e:
+            print(f"⚠️ Failed to delete SentimentAnalysisAgent during cleanup: {e}")
+        finally:
+            _sentiment_analysis_agent = None
+            _agents_client = None
+    else:
         print("✅ Sentiment Analysis Agent cleaned up")
-    except Exception as e:
-        print(f"⚠️ Error cleaning up Sentiment Analysis Agent: {e}")
 
 # For testing
 if __name__ == "__main__":

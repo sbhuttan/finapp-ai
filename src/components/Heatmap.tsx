@@ -153,10 +153,8 @@ export default function Heatmap({ mockPerformanceData }: HeatmapProps) {
                          hover:border-blue-300 group relative`}
               title={`${stock.name} - ${stock.sector}`}
             >
-              <div className={`${getTextColor(performance)} text-center h-full flex flex-col justify-between`}>
-                <div className="font-bold text-xs lg:text-sm">{stock.symbol}</div>
-                <div className="text-xs opacity-90">{performance.toFixed(1)}%</div>
-                <div className="text-xs font-medium">{stock.weight}%</div>
+              <div className={`${getTextColor(performance)} text-center h-full flex flex-col justify-center`}>
+                <div className="font-bold text-sm lg:text-base">{stock.symbol}</div>
               </div>
               
               {/* Tooltip on hover */}
